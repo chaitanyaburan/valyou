@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { coupons } from "@/lib/data";
+import { apiGetCoupons } from "@/lib/api-client";
 import type { Coupon } from "@/lib/data";
 
 const filters = ["All", "Active", "Used", "Expired"] as const;
@@ -19,9 +19,9 @@ const item = {
   exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
 };
 
-function filterCoupons(filter: Filter): Coupon[] {
-  if (filter === "All") return coupons;
-  return coupons.filter(
+function filterCoupons(items: Coupon[], filter: Filter): Coupon[] {
+  if (filter === "All") return items;
+  return items.filter(
     (c) => c.status === filter.toLowerCase(),
   );
 }
@@ -59,11 +59,16 @@ const statusConfig = {
 } as const;
 
 export default function RewardsPage() {
+  const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [active, setActive] = useState<Filter>("All");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const list = filterCoupons(active);
-  const activeCount = coupons.filter((c) => c.status === "active").length;
+  useEffect(() => {
+    apiGetCoupons("demo").then(setCoupons).catch(() => setCoupons([]));
+  }, []);
+
+  const list = useMemo(() => filterCoupons(coupons, active), [active, coupons]);
+  const activeCount = useMemo(() => coupons.filter((c) => c.status === "active").length, [coupons]);
   const inactiveCount = coupons.length - activeCount;
 
   function handleCopy(id: string, code: string) {

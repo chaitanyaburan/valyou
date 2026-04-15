@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import {
   motion,
@@ -8,8 +8,9 @@ import {
   useMotionValue,
   useTransform,
 } from "framer-motion";
-import { projects, computeProjectHealth, getDisputeStatus } from "@/lib/data";
+import { computeProjectHealth, getDisputeStatus } from "@/lib/data";
 import type { ProjectStock } from "@/lib/data";
+import { apiGetProjects } from "@/lib/api-client";
 import Avatar from "@/components/Avatar";
 import SparklineChart from "@/components/SparklineChart";
 import { BatchTimelineCompact } from "@/components/BatchTimeline";
@@ -423,10 +424,15 @@ function SwipeCard({
 // ═══════════════════════════════════════════
 
 export default function DiscoverPage() {
+  const [projects, setProjects] = useState<ProjectStock[]>([]);
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [invested, setInvested] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
+
+  useEffect(() => {
+    apiGetProjects().then(setProjects).catch(() => setProjects([]));
+  }, []);
 
   const sortedProjects = useMemo(() => {
     if (!prefs) return projects;

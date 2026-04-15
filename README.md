@@ -16,6 +16,29 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+## MongoDB setup
+
+1. Create `./.env.local` with:
+
+```bash
+MONGODB_URI=<your_mongodb_connection_string>
+MONGODB_DB=valyou
+```
+
+2. Seed database:
+
+```bash
+npm run seed
+```
+
+3. Run app:
+
+```bash
+npm run dev
+```
+
+The app reads data through API routes under `src/app/api/*` (projects, feed, portfolio, social, and trade market data).
+
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.

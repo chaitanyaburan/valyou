@@ -15,14 +15,8 @@ import {
   Bar,
 } from "recharts";
 import Link from "next/link";
-import {
-  getProjectById,
-  getChartData,
-  getOrderBook,
-  getRecentTrades,
-  get24hStats,
-  projects,
-} from "@/lib/data";
+import type { ProjectStats24h, ProjectStock, RecentTrade, OrderBookEntry } from "@/lib/data";
+import { apiGetProject, apiGetProjectCandles, apiGetProjectOrderBook, apiGetProjects, apiGetProjectTrades } from "@/lib/api-client";
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
 import SparklineChart from "@/components/SparklineChart";
@@ -30,13 +24,13 @@ import { BatchTimelineFull } from "@/components/BatchTimeline";
 import DisputeBanner from "@/components/DisputeBanner";
 import DisputeModal from "@/components/DisputeModal";
 
-const fmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-const fmtCompact = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const fmt = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
+const fmtCompact = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
 
 const periods = ["1D", "1W", "1M", "3M", "1Y"] as const;
 
 function sliceByPeriod(
-  data: ReturnType<typeof getChartData>,
+  data: Array<{ time: string; price: number; volume: number }>,
   period: string
 ) {
   switch (period) {
@@ -64,9 +58,9 @@ function CustomTooltip({ active, payload, label }: any) {
   return (
     <div className="rounded-xl border border-card-border bg-card/95 px-4 py-3 shadow-2xl backdrop-blur-sm">
       <p className="mb-1 text-xs text-muted">{label}</p>
-      <p className="text-lg font-bold text-foreground">{fmt.format(Number(payload[0].value))} ALGO</p>
+      <p className="text-lg font-bold text-foreground">{fmt.format(Number(payload[0].value))} VALU</p>
       {payload[1] && (
-        <p className="mt-1 text-xs text-muted">Vol: {payload[1].value?.toLocaleString("en-US")} ALGO</p>
+        <p className="mt-1 text-xs text-muted">Vol: {payload[1].value?.toLocaleString("en-IN")}</p>
       )}
     </div>
   );
@@ -76,11 +70,12 @@ function CustomTooltip({ active, payload, label }: any) {
 export default function TradePage() {
   const params = useParams();
   const id = params.id as string;
-  const project = getProjectById(id);
-  const fullChart = useMemo(() => getChartData(id), [id]);
-  const orderBook = useMemo(() => getOrderBook(id), [id]);
-  const recentTrades = useMemo(() => getRecentTrades(id), [id]);
-  const stats24h = useMemo(() => get24hStats(id), [id]);
+  const [project, setProject] = useState<ProjectStock | null>(null);
+  const [fullChart, setFullChart] = useState<Array<{ time: string; price: number; volume: number }>>([]);
+  const [orderBook, setOrderBook] = useState<{ bids: OrderBookEntry[]; asks: OrderBookEntry[] }>({ bids: [], asks: [] });
+  const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([]);
+  const [stats24h, setStats24h] = useState<ProjectStats24h | null>(null);
+  const [allProjects, setAllProjects] = useState<ProjectStock[]>([]);
 
   const [period, setPeriod] = useState<string>("3M");
   const [tab, setTab] = useState<"buy" | "sell">("buy");
@@ -107,9 +102,35 @@ export default function TradePage() {
     return () => window.removeEventListener("hashchange", scrollToTimeline);
   }, [project?.id]);
 
+  useEffect(() => {
+    Promise.all([
+      apiGetProject(id),
+      apiGetProjectCandles(id),
+      apiGetProjectOrderBook(id),
+      apiGetProjectTrades(id),
+      apiGetProjects(),
+    ])
+      .then(([p, candles, ob, trades, projects]) => {
+        setProject(p);
+        setStats24h(p.stats24h);
+        setFullChart(candles);
+        setOrderBook(ob);
+        setRecentTrades(trades);
+        setAllProjects(projects);
+      })
+      .catch(() => {
+        setProject(null);
+        setStats24h(null);
+        setFullChart([]);
+        setOrderBook({ bids: [], asks: [] });
+        setRecentTrades([]);
+        setAllProjects([]);
+      });
+  }, [id]);
+
   const relatedProjects = useMemo(
-    () => projects.filter((p) => p.id !== id).slice(0, 4),
-    [id]
+    () => allProjects.filter((p) => p.id !== id).slice(0, 4),
+    [allProjects, id]
   );
 
   if (!project) {
@@ -148,9 +169,25 @@ export default function TradePage() {
   const effectivePrice = orderType === "limit" && limitPrice ? parseFloat(limitPrice) : project.price;
   const units = amount ? (parseFloat(amount) / effectivePrice).toFixed(4) : "0.0000";
   const staking = stakingConfig[project.creator.stakingLevel] || stakingConfig.Bronze;
-  const maxBidTotal = Math.max(...orderBook.bids.map((b) => b.total));
-  const maxAskTotal = Math.max(...orderBook.asks.map((a) => a.total));
+  const maxBidTotal = Math.max(1, ...orderBook.bids.map((b) => b.total));
+  const maxAskTotal = Math.max(1, ...orderBook.asks.map((a) => a.total));
   const fundedPct = Math.round((project.fundingRaised / project.fundingGoal) * 100);
+  const stats = stats24h ?? {
+    open: project.price - project.change,
+    high: project.price,
+    low: project.price,
+    close: project.price,
+    volume24h: project.volume,
+    trades24h: 0,
+    avgPrice: project.price,
+    holders: 0,
+    allTimeHigh: project.price,
+    allTimeLow: project.price,
+    rank: 0,
+    creatorScore: project.creator.score,
+    endorsements: 0,
+    backers: `${project.backers}`,
+  };
 
   const handleOrder = useCallback(() => {
     if (!amount || parseFloat(amount) <= 0) return;
@@ -209,7 +246,7 @@ export default function TradePage() {
             <div className="flex items-end gap-6 sm:text-right">
               <div>
                 <p className="text-xs text-muted uppercase tracking-wider mb-0.5">Share Price</p>
-                <p className="text-3xl font-bold tabular-nums tracking-tight">{fmt.format(project.price)} <span className="text-sm text-muted">ALGO</span></p>
+                <p className="text-3xl font-bold tabular-nums tracking-tight">{fmt.format(project.price)} <span className="text-sm text-muted">VALU</span></p>
                 <PriceChange value={project.change} percent={project.changePercent} />
               </div>
             </div>
@@ -218,14 +255,14 @@ export default function TradePage() {
 
         <div className="grid grid-cols-2 gap-px border-t border-card-border bg-card-border sm:grid-cols-4 lg:grid-cols-8">
           {[
-            { label: "24h Open", value: `${fmt.format(stats24h.open)} ALGO` },
-            { label: "24h High", value: `${fmt.format(stats24h.high)} ALGO`, className: "text-gain" },
-            { label: "24h Low", value: `${fmt.format(stats24h.low)} ALGO`, className: "text-loss" },
-            { label: "24h Vol", value: stats24h.volume24h },
-            { label: "Trades", value: stats24h.trades24h.toLocaleString("en-US") },
-            { label: "Backers", value: stats24h.backers },
-            { label: "ATH", value: `${fmtCompact.format(stats24h.allTimeHigh)} ALGO` },
-            { label: "Rank", value: `#${stats24h.rank}` },
+            { label: "24h Open", value: `${fmt.format(stats.open)}` },
+            { label: "24h High", value: `${fmt.format(stats.high)}`, className: "text-gain" },
+            { label: "24h Low", value: `${fmt.format(stats.low)}`, className: "text-loss" },
+            { label: "24h Vol", value: stats.volume24h },
+            { label: "Trades", value: stats.trades24h.toLocaleString("en-IN") },
+            { label: "Backers", value: stats.backers },
+            { label: "ATH", value: `${fmtCompact.format(stats.allTimeHigh)}` },
+            { label: "Rank", value: `#${stats.rank}` },
           ].map((s) => (
             <div key={s.label} className="bg-background/60 px-4 py-2.5">
               <p className="text-[10px] uppercase tracking-wider text-muted">{s.label}</p>
@@ -388,7 +425,7 @@ export default function TradePage() {
             <div className="p-5 space-y-4">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted">Available Balance</span>
-                <span className="font-semibold text-foreground">10,000.00 ALGO</span>
+                <span className="font-semibold text-foreground">10,000.00 VALU</span>
               </div>
 
               <div className="flex gap-1 rounded-lg bg-card p-0.5">
@@ -400,14 +437,14 @@ export default function TradePage() {
               <AnimatePresence>
                 {orderType === "limit" && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                    <label className="mb-1.5 block text-xs text-muted">Limit Price (ALGO)</label>
+                    <label className="mb-1.5 block text-xs text-muted">Limit Price (VALU)</label>
                     <input type="number" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder={project.price.toFixed(2)} className="w-full rounded-lg border border-card-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted/40 transition focus:border-accent focus:outline-none" />
                   </motion.div>
                 )}
               </AnimatePresence>
 
               <div>
-                <label className="mb-1.5 block text-xs text-muted">Amount (ALGO)</label>
+                <label className="mb-1.5 block text-xs text-muted">Amount (VALU)</label>
                 <input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); const pct = Math.min(100, Math.max(0, (parseFloat(e.target.value) / 10000) * 100)); setSliderValue(isNaN(pct) ? 0 : pct); }} placeholder="Enter amount" className="w-full rounded-lg border border-card-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted/40 transition focus:border-accent focus:outline-none" />
               </div>
 
@@ -429,10 +466,10 @@ export default function TradePage() {
               </div>
 
               <div className="space-y-2 rounded-lg bg-card p-3.5">
-                <div className="flex justify-between text-xs"><span className="text-muted">Price per share</span><span className="tabular-nums">{fmt.format(effectivePrice)} ALGO</span></div>
+                <div className="flex justify-between text-xs"><span className="text-muted">Price per share</span><span className="tabular-nums">{fmt.format(effectivePrice)} VALU</span></div>
                 <div className="flex justify-between text-xs"><span className="text-muted">Shares</span><span className="tabular-nums">{units}</span></div>
                 {orderType === "limit" && <div className="flex justify-between text-xs"><span className="text-muted">Order type</span><span className="text-accent">Limit Order</span></div>}
-                <div className="flex justify-between border-t border-card-border pt-2 text-sm"><span className="text-muted">Total</span><span className="font-bold tabular-nums">{amount ? `${fmt.format(parseFloat(amount))} ALGO` : "0.00 ALGO"}</span></div>
+                <div className="flex justify-between border-t border-card-border pt-2 text-sm"><span className="text-muted">Total</span><span className="font-bold tabular-nums">{amount ? `${fmt.format(parseFloat(amount))} VALU` : "0.00 VALU"}</span></div>
               </div>
 
               <motion.button whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.01 }} onClick={handleOrder} disabled={!amount || parseFloat(amount) <= 0} className={`w-full rounded-lg py-3.5 text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed ${tab === "buy" ? "bg-gain shadow-lg shadow-gain/20 hover:shadow-gain/30" : "bg-loss shadow-lg shadow-loss/20 hover:shadow-loss/30"}`}>

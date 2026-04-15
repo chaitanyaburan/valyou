@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { projects } from "@/lib/data";
+import { apiGetProjects } from "@/lib/api-client";
 import type { ProjectStock } from "@/lib/data";
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
@@ -30,14 +30,19 @@ const item = {
   exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
 };
 
-function filtered(filter: FilterValue): ProjectStock[] {
+function filtered(projects: ProjectStock[], filter: FilterValue): ProjectStock[] {
   if (filter === "all") return projects;
   return projects.filter((p) => p.filterCategory === filter);
 }
 
 export default function MarketPage() {
+  const [projects, setProjects] = useState<ProjectStock[]>([]);
   const [active, setActive] = useState<FilterValue>("all");
-  const list = filtered(active);
+  const list = useMemo(() => filtered(projects, active), [projects, active]);
+
+  useEffect(() => {
+    apiGetProjects().then(setProjects).catch(() => setProjects([]));
+  }, []);
 
   return (
     <section className="py-8">

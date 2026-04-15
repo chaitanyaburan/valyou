@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { fundingProjects } from "@/lib/data";
+import { apiGetFunding } from "@/lib/api-client";
+import type { FundingProject } from "@/lib/data";
 
 import { formatAlgo } from "@/lib/algo";
 
@@ -25,7 +26,12 @@ const gradients = [
 ];
 
 export default function FundingPage() {
+  const [fundingProjects, setFundingProjects] = useState<FundingProject[]>([]);
   const [fundedIds, setFundedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    apiGetFunding().then(setFundingProjects).catch(() => setFundingProjects([]));
+  }, []);
 
   function handleFund(id: string) {
     setFundedIds((prev) => {

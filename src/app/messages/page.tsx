@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { conversations as baseConversations } from "@/lib/social";
+import { apiGetConversations } from "@/lib/api-client";
 import type { Conversation, Message } from "@/lib/social";
 import Avatar from "@/components/Avatar";
 
@@ -19,11 +19,6 @@ const lockedConversation: Conversation = {
   messages: [],
 };
 
-const allConversations: Conversation[] = [
-  ...baseConversations,
-  lockedConversation,
-];
-
 const messageVariants = {
   hidden: { opacity: 0, y: 12 },
   visible: (i: number) => ({
@@ -34,23 +29,47 @@ const messageVariants = {
 };
 
 export default function MessagesPage() {
-  const [activeId, setActiveId] = useState(allConversations[0].userId);
+  const [baseConversations, setBaseConversations] = useState<Conversation[]>([]);
+  const [activeId, setActiveId] = useState(lockedConversation.userId);
   const [showChat, setShowChat] = useState(false);
   const [inputValue, setInputValue] = useState("");
+  const allConversations: Conversation[] = [...baseConversations, lockedConversation];
+
+  useEffect(() => {
+    apiGetConversations()
+      .then((rows) => {
+        setBaseConversations(rows);
+        if (rows[0]?.userId) setActiveId(rows[0].userId);
+      })
+      .catch(() => {
+        setBaseConversations([]);
+        setActiveId(lockedConversation.userId);
+      });
+  }, []);
+
   const [localMessages, setLocalMessages] = useState<
     Record<string, Message[]>
   >(() => {
     const initial: Record<string, Message[]> = {};
-    allConversations.forEach((c) => {
-      initial[c.userId] = [...c.messages];
-    });
+    initial[lockedConversation.userId] = [];
     return initial;
   });
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const activeConvo = allConversations.find((c) => c.userId === activeId)!;
+  const activeConvo = allConversations.find((c) => c.userId === activeId) ?? lockedConversation;
   const messages = localMessages[activeId] || [];
   const isLocked = activeConvo.sharesHeld === 0;
+
+  useEffect(() => {
+    setLocalMessages((prev) => {
+      const next = { ...prev };
+      baseConversations.forEach((c) => {
+        if (!next[c.userId]) next[c.userId] = [...c.messages];
+      });
+      if (!next[lockedConversation.userId]) next[lockedConversation.userId] = [];
+      return next;
+    });
+  }, [baseConversations]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

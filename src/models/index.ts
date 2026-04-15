@@ -1,0 +1,308 @@
+import mongoose, { Schema, type InferSchemaType } from "mongoose";
+
+const batchLinkSchema = new Schema(
+  {
+    label: { type: String, required: true },
+    href: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const batchSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    deadline: { type: String, required: true },
+    completedAt: { type: String },
+    status: { type: String, enum: ["completed", "in_progress", "overdue", "upcoming"], required: true },
+    priceImpact: { type: Number, required: true },
+    deliverablesDone: [{ type: String }],
+    workInProgress: [{ type: String }],
+    plannedScope: [{ type: String }],
+    transparencyNote: { type: String },
+    transparencyLinks: [batchLinkSchema],
+    lastInvestorUpdate: { type: String },
+  },
+  { _id: false },
+);
+
+const disputeSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    reportedBy: { type: String, required: true },
+    reason: { type: String, required: true },
+    proofLinks: [{ type: String }],
+    votesFor: { type: Number, required: true },
+    votesAgainst: { type: Number, required: true },
+    status: { type: String, enum: ["open", "confirmed", "cleared"], required: true },
+    createdAt: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const creatorSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true },
+    username: { type: String, required: true },
+    avatar: { type: String, required: true },
+    score: { type: Number, required: true },
+    consistency: { type: Number, required: true },
+    stakingLevel: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const projectSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true },
+    tagline: { type: String, required: true },
+    creatorId: { type: String, required: true, index: true },
+    creator: {
+      id: { type: String, required: true },
+      name: { type: String, required: true },
+      username: { type: String, required: true },
+      avatar: { type: String, required: true },
+      score: { type: Number, required: true },
+      consistency: { type: Number, required: true },
+      stakingLevel: { type: String, required: true },
+    },
+    price: { type: Number, required: true },
+    change: { type: Number, required: true },
+    changePercent: { type: Number, required: true },
+    sparkline: [{ type: Number }],
+    volume: { type: String, required: true },
+    marketCap: { type: String, required: true },
+    category: { type: String, required: true },
+    tags: [{ type: String }],
+    coverGradient: { type: String, required: true },
+    coverIcon: { type: String, required: true },
+    fundingGoal: { type: Number, required: true },
+    fundingRaised: { type: Number, required: true },
+    backers: { type: Number, required: true },
+    daysLeft: { type: Number, required: true },
+    milestone: { type: String, required: true },
+    milestoneProgress: { type: Number, required: true },
+    filterCategory: { type: String, enum: ["trending", "top", "new"], required: true },
+    timelineLocked: { type: Boolean, required: true },
+    batches: [batchSchema],
+    dispute: disputeSchema,
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const holdingSchema = new Schema(
+  {
+    userId: { type: String, required: true, index: true },
+    projectId: { type: String, required: true, index: true },
+    title: { type: String, required: true },
+    creatorName: { type: String, required: true },
+    avatar: { type: String, required: true },
+    invested: { type: Number, required: true },
+    currentValue: { type: Number, required: true },
+    quantity: { type: Number, required: true },
+    avgPrice: { type: Number, required: true },
+    currentPrice: { type: Number, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+holdingSchema.index({ userId: 1, projectId: 1 }, { unique: true });
+
+const fundingProjectSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    title: { type: String, required: true },
+    description: { type: String, required: true },
+    goal: { type: Number, required: true },
+    raised: { type: Number, required: true },
+    backers: { type: Number, required: true },
+    reward: { type: String, required: true },
+    daysLeft: { type: Number, required: true },
+    image: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const couponSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    code: { type: String, required: true },
+    title: { type: String, required: true },
+    discount: { type: String, required: true },
+    source: { type: String, required: true },
+    status: { type: String, enum: ["active", "used", "expired"], required: true },
+    expiresAt: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const walletSchema = new Schema(
+  {
+    userId: { type: String, required: true, unique: true, index: true },
+    balance: { type: Number, required: true },
+    invested: { type: Number, required: true },
+    currentValue: { type: Number, required: true },
+    pnl: { type: Number, required: true },
+    pnlPercent: { type: Number, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const profileSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true },
+    username: { type: String, required: true },
+    avatar: { type: String, required: true },
+    bio: { type: String, required: true },
+    coverGradient: { type: String, required: true },
+    followers: { type: Number, required: true },
+    following: { type: Number, required: true },
+    projects: { type: Number, required: true },
+    score: { type: Number, required: true },
+    isVerified: { type: Boolean, required: true },
+    joinedDate: { type: String, required: true },
+    skills: [{ type: String }],
+    githubStars: { type: Number, required: true },
+    githubRepos: { type: Number, required: true },
+    githubStreak: { type: Number, required: true },
+    linkedinConnections: { type: Number, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const postSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    userName: { type: String, required: true },
+    userAvatar: { type: String, required: true },
+    username: { type: String, required: true },
+    type: { type: String, enum: ["text", "milestone", "trade", "project"], required: true },
+    content: { type: String, required: true },
+    likes: { type: Number, required: true },
+    comments: { type: Number, required: true },
+    shares: { type: Number, required: true },
+    endorsements: { type: Number, required: true },
+    timestamp: { type: String, required: true },
+    timeAgo: { type: String, required: true },
+    liked: { type: Boolean, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const storySchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    userName: { type: String, required: true },
+    userAvatar: { type: String, required: true },
+    content: { type: String, required: true },
+    type: { type: String, enum: ["update", "milestone", "launch"], required: true },
+    gradient: { type: String, required: true },
+    viewed: { type: Boolean, required: true },
+    projectId: { type: String },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const messageSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    content: { type: String, required: true },
+    timestamp: { type: String, required: true },
+    isMine: { type: Boolean, required: true },
+  },
+  { _id: false },
+);
+
+const conversationSchema = new Schema(
+  {
+    userId: { type: String, required: true, unique: true, index: true },
+    userName: { type: String, required: true },
+    userAvatar: { type: String, required: true },
+    username: { type: String, required: true },
+    lastMessage: { type: String, required: true },
+    lastTime: { type: String, required: true },
+    unread: { type: Number, required: true },
+    sharesHeld: { type: Number, required: true },
+    messages: [messageSchema],
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const notificationSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    type: { type: String, enum: ["investment", "social", "milestone", "alert"], required: true },
+    message: { type: String, required: true },
+    detail: { type: String, required: true },
+    timeAgo: { type: String, required: true },
+    read: { type: Boolean, required: true },
+    icon: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const projectFeedMetaSchema = new Schema(
+  {
+    projectId: { type: String, required: true, unique: true, index: true },
+    description: { type: String, required: true },
+    likes: { type: Number, required: true },
+    comments: { type: Number, required: true },
+    timeAgo: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+const tradeSchema = new Schema(
+  {
+    projectId: { type: String, required: true, index: true },
+    type: { type: String, enum: ["buy", "sell"], required: true },
+    price: { type: Number, required: true },
+    quantity: { type: Number, required: true },
+    time: { type: String, required: true },
+    user: { type: String, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+tradeSchema.index({ projectId: 1, createdAt: -1 });
+
+const candleSchema = new Schema(
+  {
+    projectId: { type: String, required: true, index: true },
+    time: { type: String, required: true },
+    open: { type: Number, required: true },
+    high: { type: Number, required: true },
+    low: { type: Number, required: true },
+    close: { type: Number, required: true },
+    volume: { type: Number, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+candleSchema.index({ projectId: 1, time: 1 }, { unique: true });
+
+export const CreatorModel = mongoose.models.Creator || mongoose.model("Creator", creatorSchema);
+export const ProjectModel = mongoose.models.Project || mongoose.model("Project", projectSchema);
+export const HoldingModel = mongoose.models.Holding || mongoose.model("Holding", holdingSchema);
+export const FundingProjectModel = mongoose.models.FundingProject || mongoose.model("FundingProject", fundingProjectSchema);
+export const CouponModel = mongoose.models.Coupon || mongoose.model("Coupon", couponSchema);
+export const WalletModel = mongoose.models.Wallet || mongoose.model("Wallet", walletSchema);
+export const UserProfileModel = mongoose.models.UserProfile || mongoose.model("UserProfile", profileSchema);
+export const PostModel = mongoose.models.Post || mongoose.model("Post", postSchema);
+export const StoryModel = mongoose.models.Story || mongoose.model("Story", storySchema);
+export const ConversationModel = mongoose.models.Conversation || mongoose.model("Conversation", conversationSchema);
+export const NotificationModel = mongoose.models.Notification || mongoose.model("Notification", notificationSchema);
+export const ProjectFeedMetaModel = mongoose.models.ProjectFeedMeta || mongoose.model("ProjectFeedMeta", projectFeedMetaSchema);
+export const TradeModel = mongoose.models.Trade || mongoose.model("Trade", tradeSchema);
+export const CandleModel = mongoose.models.Candle || mongoose.model("Candle", candleSchema);
+
+export type ProjectDoc = InferSchemaType<typeof projectSchema>;
+

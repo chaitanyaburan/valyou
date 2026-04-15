@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { notifications as seedNotifications } from "@/lib/social";
+import { apiGetNotifications } from "@/lib/api-client";
 import type { Notification } from "@/lib/social";
 
 const filters = [
@@ -162,10 +162,12 @@ function NotificationGlyph({ n }: { n: Notification }) {
 }
 
 export default function NotificationsPage() {
-  const [items, setItems] = useState<Notification[]>(() =>
-    seedNotifications.map((n) => ({ ...n })),
-  );
+  const [items, setItems] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<FilterValue>("all");
+
+  useEffect(() => {
+    apiGetNotifications("demo").then(setItems).catch(() => setItems([]));
+  }, []);
 
   const list = useMemo(() => filterByType(items, filter), [items, filter]);
 

@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
 import ThemeToggle from "@/components/ThemeToggle";
-import { getUserProfile, getPostsForUser, type Post } from "@/lib/social";
-import { getCreatorById, projects } from "@/lib/data";
+import type { Post, UserProfile } from "@/lib/social";
+import type { Creator, ProjectStock } from "@/lib/data";
+import { apiGetCreators, apiGetPosts, apiGetProfile, apiGetProjects } from "@/lib/api-client";
 
 const container = {
   hidden: {},
@@ -111,11 +112,26 @@ export default function ProfilePage() {
   const params = useParams();
   const id = params.id as string;
   const [activeTab, setActiveTab] = useState<Tab>("Posts");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [creator, setCreator] = useState<Creator | null>(null);
+  const [creatorProjects, setCreatorProjects] = useState<ProjectStock[]>([]);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
 
-  const profile = getUserProfile(id);
-  const creator = getCreatorById(id);
-  const creatorProjects = projects.filter((p) => p.creator.id === id);
-  const userPosts = getPostsForUser(id);
+  useEffect(() => {
+    Promise.all([apiGetProfile(id), apiGetProjects(), apiGetCreators(), apiGetPosts(id)])
+      .then(([p, projects, creators, posts]) => {
+        setProfile(p);
+        setCreator(creators.find((c) => c.id === id) ?? null);
+        setCreatorProjects(projects.filter((proj) => proj.creator.id === id));
+        setUserPosts(posts);
+      })
+      .catch(() => {
+        setProfile(null);
+        setCreator(null);
+        setCreatorProjects([]);
+        setUserPosts([]);
+      });
+  }, [id]);
 
   const heatmap = useMemo(() => generateHeatmap(id), [id]);
 
