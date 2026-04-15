@@ -178,6 +178,7 @@ function ProjectCard({ project, onInvest }: { project: ProjectPost; onInvest: (i
                 currentBatchTitle={project.currentBatchTitle}
                 batchProgress={project.batchProgress}
                 batchStatus={project.batchStatus}
+                projectId={project.id}
               />
             );
           })()}

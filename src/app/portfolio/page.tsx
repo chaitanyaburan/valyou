@@ -118,6 +118,7 @@ export default function PortfolioPage() {
                         currentBatchTitle={health.currentBatch?.title ?? null}
                         batchProgress={`${health.completedCount}/${health.totalBatches}`}
                         batchStatus={health.batchStatus}
+                        projectId={h.projectId}
                       />
                     )}
                   </td>

@@ -94,6 +94,19 @@ export default function TradePage() {
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   useEffect(() => setChartReady(true), []);
 
+  useEffect(() => {
+    if (!project) return;
+    const scrollToTimeline = () => {
+      if (typeof window === "undefined" || window.location.hash !== "#investor-timeline") return;
+      requestAnimationFrame(() => {
+        document.getElementById("investor-timeline")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    };
+    scrollToTimeline();
+    window.addEventListener("hashchange", scrollToTimeline);
+    return () => window.removeEventListener("hashchange", scrollToTimeline);
+  }, [project?.id]);
+
   const relatedProjects = useMemo(
     () => projects.filter((p) => p.id !== id).slice(0, 4),
     [id]

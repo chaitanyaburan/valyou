@@ -399,6 +399,7 @@ function SwipeCard({
                 currentBatchTitle={health.currentBatch?.title ?? null}
                 batchProgress={`${health.completedCount}/${health.totalBatches}`}
                 batchStatus={health.batchStatus}
+                projectId={project.id}
               />
               {health.batchStatus === "overdue" && (
                 <span className="flex items-center gap-1 rounded-full bg-red/10 border border-red/20 px-2 py-0.5 text-[9px] font-semibold text-red">

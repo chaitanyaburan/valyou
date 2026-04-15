@@ -15,6 +15,11 @@ export interface Creator {
 }
 
 // ─── Batch (immutable milestone with deadline) ───
+export interface BatchTransparencyLink {
+  label: string;
+  href: string;
+}
+
 export interface Batch {
   id: string;
   title: string;
@@ -23,6 +28,78 @@ export interface Batch {
   completedAt?: string;
   status: "completed" | "in_progress" | "overdue" | "upcoming";
   priceImpact: number;
+  /** Shipped items investors can verify */
+  deliverablesDone?: string[];
+  /** What the team is doing now (in progress / overdue) */
+  workInProgress?: string[];
+  /** What will happen in this batch once unlocked */
+  plannedScope?: string[];
+  /** Plain-language transparency line */
+  transparencyNote?: string;
+  /** Changelog, demo, repo, etc. */
+  transparencyLinks?: BatchTransparencyLink[];
+  /** Last time the creator posted an investor-facing update for this batch */
+  lastInvestorUpdate?: string;
+}
+
+/** Resolved copy for the interactive investor timeline UI */
+export interface BatchInvestorDetails {
+  done: string[];
+  active: string[];
+  planned: string[];
+  transparency: string;
+  links: BatchTransparencyLink[];
+  lastUpdateLabel: string | null;
+}
+
+export function getBatchInvestorDetails(batch: Batch): BatchInvestorDetails {
+  const formatShort = (d: string) =>
+    new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+
+  const done =
+    batch.deliverablesDone?.length
+      ? batch.deliverablesDone
+      : batch.status === "completed"
+        ? [
+            `Milestone scope: ${batch.description}`,
+            batch.completedAt
+              ? `Marked complete ${formatShort(batch.completedAt)} (on or before deadline ${formatShort(batch.deadline)}).`
+              : `Completed before ${formatShort(batch.deadline)}.`,
+          ]
+        : [];
+
+  const active =
+    batch.workInProgress?.length
+      ? batch.workInProgress
+      : batch.status === "in_progress" || batch.status === "overdue"
+        ? [
+            `Current work: ${batch.description}`,
+            batch.status === "overdue"
+              ? "This batch passed its immutable deadline. Trading continues; price and creator credibility decay daily until delivery is verified."
+              : "Progress is tracked against the published deadline. Timeline cannot be shortened without a public investor update.",
+          ]
+        : [];
+
+  const planned =
+    batch.plannedScope?.length
+      ? batch.plannedScope
+      : batch.status === "upcoming"
+        ? [
+            `Planned when unlocked: ${batch.description}`,
+            "Unlocks automatically after the previous batch is verified complete.",
+          ]
+        : [];
+
+  const transparency =
+    batch.transparencyNote ??
+    "Dates and titles are locked when the project is published. Creators self-report completion; disputed or forked work can be flagged by the community.";
+
+  const links = batch.transparencyLinks ?? [];
+
+  const raw = batch.lastInvestorUpdate ?? batch.completedAt;
+  const lastUpdateLabel = raw ? `Last update · ${formatShort(raw)}` : null;
+
+  return { done, active, planned, transparency, links, lastUpdateLabel };
 }
 
 // ─── Dispute (community-driven theft protection) ───
@@ -177,11 +254,39 @@ export const projects: ProjectStock[] = [
     milestone: "Beta launched — 500 signups", milestoneProgress: 78, filterCategory: "top",
     timelineLocked: true,
     batches: [
-      { id: "b1", title: "Research & Validation", description: "User interviews, competitor analysis, PRD", deadline: "2025-11-15", completedAt: "2025-11-12", status: "completed", priceImpact: 5 },
-      { id: "b2", title: "Prototype", description: "Clickable Figma prototype + user testing", deadline: "2026-01-10", completedAt: "2026-01-08", status: "completed", priceImpact: 8 },
-      { id: "b3", title: "Beta Launch", description: "Functional MVP with AI engine + 500 signups", deadline: "2026-03-30", completedAt: "2026-03-28", status: "completed", priceImpact: 12 },
-      { id: "b4", title: "Public Launch", description: "Full product launch with premium tier", deadline: "2026-05-15", status: "in_progress", priceImpact: 15 },
-      { id: "b5", title: "Enterprise Tier", description: "API access, team features, enterprise sales", deadline: "2026-08-01", status: "upcoming", priceImpact: 10 },
+      {
+        id: "b1", title: "Research & Validation", description: "User interviews, competitor analysis, PRD", deadline: "2025-11-15", completedAt: "2025-11-12", status: "completed", priceImpact: 5,
+        deliverablesDone: ["28 user interviews across 4 personas", "Competitive matrix for 6 ATS tools", "PRD v2 signed off in Notion"],
+        transparencyNote: "All interview notes anonymized; summary deck linked below.",
+        transparencyLinks: [{ label: "Research summary (PDF)", href: "https://example.com/valyou/ai-resume/research-summary" }],
+        lastInvestorUpdate: "2025-11-12",
+      },
+      {
+        id: "b2", title: "Prototype", description: "Clickable Figma prototype + user testing", deadline: "2026-01-10", completedAt: "2026-01-08", status: "completed", priceImpact: 8,
+        deliverablesDone: ["Figma prototype with 12 core flows", "Usability tests with 18 participants (Loom recordings)", "Design tokens exported to codebase"],
+        transparencyLinks: [{ label: "Figma file (view)", href: "https://figma.com/file/example" }],
+        lastInvestorUpdate: "2026-01-08",
+      },
+      {
+        id: "b3", title: "Beta Launch", description: "Functional MVP with AI engine + 500 signups", deadline: "2026-03-30", completedAt: "2026-03-28", status: "completed", priceImpact: 12,
+        deliverablesDone: ["MVP deployed on Vercel + custom domain", "512 signups in first 72h (PostHog dashboard)", "Stripe test mode + 42 paid beta upgrades"],
+        transparencyNote: "Signup counts are from first-party analytics; dashboard snapshot weekly.",
+        transparencyLinks: [{ label: "Beta metrics snapshot", href: "https://example.com/valyou/ai-resume/beta-metrics" }],
+        lastInvestorUpdate: "2026-03-28",
+      },
+      {
+        id: "b4", title: "Public Launch", description: "Full product launch with premium tier", deadline: "2026-05-15", status: "in_progress", priceImpact: 15,
+        workInProgress: ["Pricing page A/B test (variant B leading +18%)", "SOC2 Type I readiness checklist 70% done", "Premium tier feature flag at 20% rollout"],
+        transparencyNote: "Launch scope unchanged from published batch; no silent date moves.",
+        transparencyLinks: [{ label: "Public changelog", href: "https://example.com/changelog" }, { label: "Status page", href: "https://status.example.com" }],
+        lastInvestorUpdate: "2026-04-12",
+      },
+      {
+        id: "b5", title: "Enterprise Tier", description: "API access, team features, enterprise sales", deadline: "2026-08-01", status: "upcoming", priceImpact: 10,
+        plannedScope: ["REST API with scoped keys + usage billing", "Team workspaces + SSO (SAML)", "Sales playbook + 2 design-partner slots"],
+        transparencyNote: "Enterprise batch unlocks only after Public Launch is verified complete.",
+        lastInvestorUpdate: "2026-03-28",
+      },
     ],
   },
   {
@@ -220,7 +325,21 @@ export const projects: ProjectStock[] = [
     batches: [
       { id: "b1", title: "Whitepaper", description: "Technical spec + tokenomics design", deadline: "2025-10-15", completedAt: "2025-10-14", status: "completed", priceImpact: 5 },
       { id: "b2", title: "Smart Contracts", description: "Deploy skill badge contracts on testnet", deadline: "2026-02-01", completedAt: "2026-02-10", status: "completed", priceImpact: 8 },
-      { id: "b3", title: "Frontend dApp", description: "Web app for issuing and verifying badges", deadline: "2026-04-01", status: "overdue", priceImpact: 12 },
+      {
+        id: "b3", title: "Frontend dApp", description: "Web app for issuing and verifying badges", deadline: "2026-04-01", status: "overdue", priceImpact: 12,
+        workInProgress: [
+          "Wallet connect + network switcher merged to main",
+          "Issue flow 80% — missing employer verification step",
+          "E2E tests flaky on CI (fix in progress)",
+        ],
+        deliverablesDone: ["Next.js app scaffold + design system", "Read-only verify flow live on testnet"],
+        transparencyNote: "Missed immutable deadline 1 Apr 2026. Daily price decay applies until batch is marked complete.",
+        transparencyLinks: [
+          { label: "GitHub main branch", href: "https://github.com/example/skill-verify" },
+          { label: "CI runs (last 7d)", href: "https://github.com/example/skill-verify/actions" },
+        ],
+        lastInvestorUpdate: "2026-04-08",
+      },
       { id: "b4", title: "Employer Portal", description: "Dashboard for employers to verify candidates", deadline: "2026-06-15", status: "upcoming", priceImpact: 10 },
       { id: "b5", title: "Mainnet Launch", description: "Deploy to Ethereum mainnet + audit", deadline: "2026-09-01", status: "upcoming", priceImpact: 15 },
     ],
