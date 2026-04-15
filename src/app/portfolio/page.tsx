@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { holdings, wallet } from "@/lib/data";
+import { holdings, wallet, projects, computeProjectHealth, getDisputeStatus } from "@/lib/data";
 import Avatar from "@/components/Avatar";
+import { BatchTimelineCompact } from "@/components/BatchTimeline";
 
 const fmt = new Intl.NumberFormat("en-IN", {
   maximumFractionDigits: 2,
@@ -71,12 +72,13 @@ export default function PortfolioPage() {
         transition={{ duration: 0.5, delay: 0.25 }}
         className="glass-card mt-8 overflow-x-auto"
       >
-        <table className="w-full min-w-[700px] text-sm">
+        <table className="w-full min-w-[900px] text-sm">
           <thead>
             <tr className="border-b border-card-border text-left text-xs text-muted">
               <th className="px-5 py-3 font-medium">Project</th>
+              <th className="px-4 py-3 font-medium">Timeline</th>
+              <th className="px-4 py-3 font-medium text-center">Status</th>
               <th className="px-4 py-3 font-medium text-right">Shares</th>
-              <th className="px-4 py-3 font-medium text-right">Avg Price</th>
               <th className="px-4 py-3 font-medium text-right">Current Price</th>
               <th className="px-4 py-3 font-medium text-right">Invested</th>
               <th className="px-4 py-3 font-medium text-right">Current Value</th>
@@ -88,12 +90,17 @@ export default function PortfolioPage() {
               const gl = h.currentValue - h.invested;
               const glPct = h.invested === 0 ? 0 : (gl / h.invested) * 100;
               const positive = gl >= 0;
+              const proj = projects.find((p) => p.id === h.projectId);
+              const health = proj ? computeProjectHealth(proj) : null;
+              const dStatus = proj ? getDisputeStatus(proj) : "none";
 
               return (
                 <motion.tr
                   key={h.projectId}
                   variants={item}
-                  className="border-b border-card-border/50 transition-colors hover:bg-white/[0.03]"
+                  className={`border-b border-card-border/50 transition-colors hover:bg-white/[0.03] ${
+                    dStatus === "open" ? "bg-amber-500/[0.02]" : dStatus === "confirmed" ? "bg-red/[0.02]" : ""
+                  } ${health?.batchStatus === "overdue" ? "bg-red/[0.02]" : ""}`}
                 >
                   <td className="px-5 py-4">
                     <Link href={`/trade/${h.projectId}`} className="flex items-center gap-3 hover:underline">
@@ -104,8 +111,41 @@ export default function PortfolioPage() {
                       </div>
                     </Link>
                   </td>
+                  <td className="px-4 py-4">
+                    {proj && health && (
+                      <BatchTimelineCompact
+                        batches={proj.batches}
+                        currentBatchTitle={health.currentBatch?.title ?? null}
+                        batchProgress={`${health.completedCount}/${health.totalBatches}`}
+                        batchStatus={health.batchStatus}
+                      />
+                    )}
+                  </td>
+                  <td className="px-4 py-4 text-center">
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                      {health?.batchStatus === "overdue" && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-red/10 border border-red/20 px-1.5 py-0.5 text-[9px] font-semibold text-red">
+                          {health.overdueDays}d late
+                        </span>
+                      )}
+                      {health?.batchStatus === "on_track" && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-gain/10 border border-gain/20 px-1.5 py-0.5 text-[9px] font-semibold text-gain">
+                          On track
+                        </span>
+                      )}
+                      {health?.batchStatus === "all_done" && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-gain/10 border border-gain/20 px-1.5 py-0.5 text-[9px] font-semibold text-gain">
+                          Complete
+                        </span>
+                      )}
+                      {(dStatus === "open" || dStatus === "confirmed") && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold text-amber-400">
+                          Disputed
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-4 text-right tabular-nums">{h.quantity}</td>
-                  <td className="px-4 py-4 text-right tabular-nums">{fmt.format(h.avgPrice)}</td>
                   <td className="px-4 py-4 text-right tabular-nums">{fmt.format(h.currentPrice)}</td>
                   <td className="px-4 py-4 text-right tabular-nums">{fmt.format(h.invested)}</td>
                   <td className="px-4 py-4 text-right tabular-nums">{fmt.format(h.currentValue)}</td>

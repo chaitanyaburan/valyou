@@ -26,6 +26,9 @@ import {
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
 import SparklineChart from "@/components/SparklineChart";
+import { BatchTimelineFull } from "@/components/BatchTimeline";
+import DisputeBanner from "@/components/DisputeBanner";
+import DisputeModal from "@/components/DisputeModal";
 
 const fmt = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 const fmtCompact = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
@@ -88,6 +91,7 @@ export default function TradePage() {
   const [sliderValue, setSliderValue] = useState(0);
   const [activeInfoTab, setActiveInfoTab] = useState<"orderbook" | "trades">("orderbook");
   const [chartReady, setChartReady] = useState(false);
+  const [showDisputeModal, setShowDisputeModal] = useState(false);
   useEffect(() => setChartReady(true), []);
 
   const relatedProjects = useMemo(
@@ -433,8 +437,22 @@ export default function TradePage() {
             </div>
           </motion.div>
 
+          {/* DISPUTE BANNER (if disputed) */}
+          {project.dispute && (
+            <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.18 }}>
+              <DisputeBanner dispute={project.dispute} onViewDetails={() => setShowDisputeModal(true)} />
+            </motion.div>
+          )}
+
+          {/* BATCH TIMELINE */}
+          {project.batches.length > 0 && (
+            <motion.div className="glass-card p-5" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
+              <BatchTimelineFull batches={project.batches} timelineLocked={project.timelineLocked} />
+            </motion.div>
+          )}
+
           {/* PROJECT INFO + CREATOR METRICS */}
-          <motion.div className="glass-card p-5 space-y-5" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
+          <motion.div className="glass-card p-5 space-y-5" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.25 }}>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-muted">Project Details</h3>
             <p className="text-sm leading-relaxed text-foreground/80">{project.tagline}</p>
 
@@ -500,6 +518,20 @@ export default function TradePage() {
                 {project.creator.stakingLevel}
               </div>
             </div>
+
+            <div className="border-t border-card-border" />
+
+            {!project.dispute && (
+              <button
+                onClick={() => setShowDisputeModal(true)}
+                className="flex items-center gap-2 text-xs text-muted hover:text-amber-400 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v1.5M3 21v-6m0 0l2.77-.693a9 9 0 016.208.682l.108.054a9 9 0 006.086.71l3.114-.732a48.524 48.524 0 01-.005-10.499l-3.11.732a9 9 0 01-6.085-.711l-.108-.054a9 9 0 00-6.208-.682L3 4.5M3 15V4.5" />
+                </svg>
+                Flag this project
+              </button>
+            )}
           </motion.div>
         </div>
       </div>
@@ -537,6 +569,13 @@ export default function TradePage() {
           ))}
         </div>
       </motion.section>
+
+      <DisputeModal
+        isOpen={showDisputeModal}
+        onClose={() => setShowDisputeModal(false)}
+        projectTitle={project.title}
+        existingDispute={project.dispute}
+      />
     </motion.div>
   );
 }

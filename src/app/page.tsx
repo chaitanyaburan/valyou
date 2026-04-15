@@ -4,6 +4,7 @@ import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
+import { BatchTimelineCompact } from "@/components/BatchTimeline";
 import { projectFeed, stories, type ProjectPost, type TradeRecord, type Story } from "@/lib/social";
 import { projects, wallet } from "@/lib/data";
 
@@ -165,6 +166,34 @@ function ProjectCard({ project, onInvest }: { project: ProjectPost; onInvest: (i
         </div>
         <p className="mt-2 text-[13px] leading-relaxed text-foreground/70 line-clamp-2 sm:line-clamp-3">{project.description}</p>
         <div className="mt-2.5 flex flex-wrap gap-1.5">{project.tags.map((t) => (<span key={t} className="rounded-full bg-accent/[0.06] border border-accent/10 px-2.5 py-0.5 text-[10px] font-medium text-accent-light/70">{t}</span>))}</div>
+
+        {/* Batch timeline + status badges */}
+        <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+          {(() => {
+            const proj = projects.find((p) => p.id === project.id);
+            if (!proj) return null;
+            return (
+              <BatchTimelineCompact
+                batches={proj.batches}
+                currentBatchTitle={project.currentBatchTitle}
+                batchProgress={project.batchProgress}
+                batchStatus={project.batchStatus}
+              />
+            );
+          })()}
+          {project.batchStatus === "overdue" && (
+            <span className="flex items-center gap-1 rounded-full bg-red/10 border border-red/20 px-2 py-0.5 text-[9px] font-semibold text-red">
+              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              {project.overdueDays}d overdue
+            </span>
+          )}
+          {project.isDisputed && (
+            <span className="flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[9px] font-semibold text-amber-400">
+              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" /></svg>
+              Disputed
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Funding bar */}

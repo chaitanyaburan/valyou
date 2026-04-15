@@ -8,10 +8,11 @@ import {
   useMotionValue,
   useTransform,
 } from "framer-motion";
-import { projects } from "@/lib/data";
+import { projects, computeProjectHealth, getDisputeStatus } from "@/lib/data";
 import type { ProjectStock } from "@/lib/data";
 import Avatar from "@/components/Avatar";
 import SparklineChart from "@/components/SparklineChart";
+import { BatchTimelineCompact } from "@/components/BatchTimeline";
 
 const fmtPrice = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 const fmt = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
@@ -67,7 +68,16 @@ function computeMatchScore(project: ProjectStock, prefs: Preferences): number {
   if (prefs.style === "balanced" && project.milestoneProgress >= 40) score += 10;
   if (prefs.style === "aggressive" && project.filterCategory === "new") score += 15;
   if (project.fundingRaised / project.fundingGoal > 0.5) score += 5;
-  return Math.min(score, 99);
+
+  const health = computeProjectHealth(project);
+  if (health.batchStatus === "overdue") score -= 15;
+  if (health.overdueDays > 7) score -= 10;
+
+  const dStatus = getDisputeStatus(project);
+  if (dStatus === "open") score -= 20;
+  if (dStatus === "confirmed") score -= 40;
+
+  return Math.max(5, Math.min(score, 99));
 }
 
 // ═══════════════════════════════════════════
@@ -377,6 +387,32 @@ function SwipeCard({
             <span key={tag} className="rounded-full bg-accent/[0.06] border border-accent/10 px-2.5 py-0.5 text-[10px] font-medium text-accent-light/60">{tag}</span>
           ))}
         </div>
+
+        {/* Batch timeline + badges */}
+        {(() => {
+          const health = computeProjectHealth(project);
+          const dStatus = getDisputeStatus(project);
+          return (
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <BatchTimelineCompact
+                batches={project.batches}
+                currentBatchTitle={health.currentBatch?.title ?? null}
+                batchProgress={`${health.completedCount}/${health.totalBatches}`}
+                batchStatus={health.batchStatus}
+              />
+              {health.batchStatus === "overdue" && (
+                <span className="flex items-center gap-1 rounded-full bg-red/10 border border-red/20 px-2 py-0.5 text-[9px] font-semibold text-red">
+                  {health.overdueDays}d overdue
+                </span>
+              )}
+              {(dStatus === "open" || dStatus === "confirmed") && (
+                <span className="flex items-center gap-1 rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[9px] font-semibold text-amber-400">
+                  Disputed
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </motion.div>
   );
