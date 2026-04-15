@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
+import ThemeToggle from "@/components/ThemeToggle";
 import { getUserProfile, getPostsForUser, type Post } from "@/lib/social";
 import { getCreatorById, projects } from "@/lib/data";
 
@@ -189,17 +190,23 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button className="rounded-full bg-accent px-6 py-2 text-sm font-semibold text-white transition hover:bg-accent-light">
-            Invest
-          </button>
-          <button className="rounded-full border border-card-border px-6 py-2 text-sm font-semibold text-foreground transition hover:border-accent/50 hover:text-accent-light">
-            Endorse
-          </button>
-          <button className="rounded-full border border-card-border px-6 py-2 text-sm font-semibold text-foreground transition hover:border-accent/50 hover:text-accent-light">
-            Message
-          </button>
+        {/* Action Buttons + theme */}
+        <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
+          <div className="flex flex-wrap gap-3">
+            <button className="rounded-full bg-accent px-6 py-2 text-sm font-semibold text-white transition hover:bg-accent-light">
+              Invest
+            </button>
+            <button className="rounded-full border border-card-border px-6 py-2 text-sm font-semibold text-foreground transition hover:border-accent/50 hover:text-accent-light">
+              Endorse
+            </button>
+            <button className="rounded-full border border-card-border px-6 py-2 text-sm font-semibold text-foreground transition hover:border-accent/50 hover:text-accent-light">
+              Message
+            </button>
+          </div>
+          <div className="flex items-center gap-2 sm:justify-end">
+            <span className="text-xs text-muted whitespace-nowrap">Theme</span>
+            <ThemeToggle />
+          </div>
         </div>
 
         {/* Skills */}

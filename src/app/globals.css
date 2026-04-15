@@ -13,6 +13,71 @@
   --glass: rgba(13, 13, 20, 0.7);
 }
 
+html.light {
+  --background: #f4f4f5;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-border: #e4e4e7;
+  --accent: #4f46e5;
+  --accent-light: #6366f1;
+  --green: #16a34a;
+  --red: #dc2626;
+  --muted: #71717a;
+  --glass: rgba(255, 255, 255, 0.82);
+}
+
+html.light * {
+  scrollbar-color: #d4d4d8 transparent;
+}
+
+html.light .skeleton {
+  background: linear-gradient(90deg, #e4e4e7 25%, #f4f4f5 50%, #e4e4e7 75%);
+  background-size: 200% 100%;
+}
+
+html.light .glass-card {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+}
+
+html.light .glass-card:hover {
+  border-color: rgba(99, 102, 241, 0.22);
+  box-shadow: 0 0 24px rgba(99, 102, 241, 0.08);
+}
+
+html.light .glass-card-strong {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+html.light .text-glow {
+  text-shadow: 0 0 32px rgba(99, 102, 241, 0.15), 0 0 64px rgba(99, 102, 241, 0.06);
+}
+
+html.light .card-glow-accent {
+  box-shadow: 0 0 24px rgba(99, 102, 241, 0.08), inset 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+html.light .card-glow-gain {
+  box-shadow: 0 0 24px rgba(22, 163, 74, 0.08), inset 0 1px 0 rgba(0, 0, 0, 0.04);
+}
+
+html.light input[type="range"] {
+  background: linear-gradient(to right, #6366f1 0%, #6366f1 var(--slider-pct, 0%), #e4e4e7 var(--slider-pct, 0%), #e4e4e7 100%);
+}
+
+html.light input[type="range"]::-webkit-slider-thumb {
+  border: 2px solid #f4f4f5;
+}
+
+html.light input[type="range"]::-moz-range-thumb {
+  border: 2px solid #f4f4f5;
+}
+
+html.light input[type="range"]::-moz-range-track {
+  background: #e4e4e7;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

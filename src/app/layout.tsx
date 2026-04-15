@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Navbar from "@/components/Navbar";
 import Ticker from "@/components/Ticker";
 import BottomNav from "@/components/BottomNav";
+import ThemeScript from "@/components/ThemeScript";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -34,9 +35,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-screen bg-background text-foreground">
+      <body className="min-h-screen bg-background text-foreground transition-colors duration-200">
+        <ThemeScript />
         <Navbar />
         <div className="pt-14 sm:pt-16">
           <Ticker />
