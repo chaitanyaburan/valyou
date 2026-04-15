@@ -22,12 +22,23 @@ const item = {
 const tabs = ["Posts", "Projects", "Endorsements"] as const;
 type Tab = (typeof tabs)[number];
 
-function generateHeatmap(): number[][] {
+function hashString(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function generateHeatmap(seed: string): number[][] {
   const rows: number[][] = [];
+  const base = hashString(seed);
   for (let r = 0; r < 7; r++) {
     const row: number[] = [];
     for (let c = 0; c < 20; c++) {
-      const rand = Math.random();
+      const hash = hashString(`${base}-${r}-${c}`);
+      const rand = (hash % 1000) / 1000;
       if (rand < 0.3) row.push(0);
       else if (rand < 0.55) row.push(1);
       else if (rand < 0.8) row.push(2);
@@ -106,7 +117,7 @@ export default function ProfilePage() {
   const creatorProjects = projects.filter((p) => p.creator.id === id);
   const userPosts = getPostsForUser(id);
 
-  const heatmap = useMemo(() => generateHeatmap(), []);
+  const heatmap = useMemo(() => generateHeatmap(id), [id]);
 
   if (!profile) {
     return (

@@ -8,6 +8,7 @@ import type { ProjectStock } from "@/lib/data";
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
 import SparklineChart from "@/components/SparklineChart";
+import { SOL_TO_INR } from "@/lib/solana";
 
 const filters = [
   { label: "All", value: "all" },
@@ -19,6 +20,7 @@ const filters = [
 type FilterValue = (typeof filters)[number]["value"];
 
 const fmtPrice = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
+const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 const container = {
   hidden: {},
@@ -109,9 +111,9 @@ export default function MarketPage() {
 
                     <div className="text-right">
                       <p className="flex items-center justify-end gap-1 text-lg font-bold tabular-nums">
-                        {fmtPrice.format(project.price)}
-                        <span className="text-[10px] text-muted">VALU</span>
+                        {fmtPrice.format(project.price)} SOL
                       </p>
+                      <p className="text-[10px] text-muted">{fmtInr.format(project.price * SOL_TO_INR)}</p>
                       <PriceChange value={project.change} percent={project.changePercent} />
                     </div>
                   </div>

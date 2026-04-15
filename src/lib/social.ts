@@ -202,6 +202,21 @@ const skillSets: Record<string, string[]> = {
   "neha-kapoor": ["React", "Next.js", "TypeScript", "Tailwind CSS", "GraphQL"],
 };
 
+function hashString(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function deterministicNumber(seed: string, min: number, max: number): number {
+  const hash = hashString(seed);
+  const normalized = (hash % 100000) / 100000;
+  return Math.floor(min + normalized * (max - min + 1));
+}
+
 export function getUserProfile(id: string): UserProfile | undefined {
   const creator = creators.find((c) => c.id === id);
   if (!creator) return undefined;
@@ -214,17 +229,17 @@ export function getUserProfile(id: string): UserProfile | undefined {
     avatar: creator.avatar,
     bio: bios[creator.id] || "Creator on Valyou. Building the future.",
     coverGradient: gradients[idx % gradients.length],
-    followers: Math.floor(Math.random() * 20000 + 1000),
-    following: Math.floor(Math.random() * 500 + 50),
-    projects: creatorProjects.length || Math.floor(Math.random() * 6 + 1),
+    followers: deterministicNumber(`${id}-followers`, 1000, 21000),
+    following: deterministicNumber(`${id}-following`, 50, 550),
+    projects: creatorProjects.length || deterministicNumber(`${id}-projects`, 1, 7),
     score: creator.score,
     isVerified: creator.score >= 75,
     joinedDate: "Jan 2025",
     skills: skillSets[creator.id] || ["JavaScript", "React"],
-    githubStars: Math.floor(Math.random() * 5000 + 100),
-    githubRepos: Math.floor(Math.random() * 80 + 10),
-    githubStreak: Math.floor(Math.random() * 300 + 30),
-    linkedinConnections: Math.floor(Math.random() * 5000 + 500),
+    githubStars: deterministicNumber(`${id}-github-stars`, 100, 5100),
+    githubRepos: deterministicNumber(`${id}-github-repos`, 10, 90),
+    githubStreak: deterministicNumber(`${id}-github-streak`, 30, 330),
+    linkedinConnections: deterministicNumber(`${id}-linkedin-connections`, 500, 5500),
   };
 }
 
