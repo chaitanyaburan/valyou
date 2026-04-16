@@ -4,11 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { fundingProjects } from "@/lib/data";
 
-const fmt = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-});
+import { formatAlgo } from "@/lib/algo";
 
 const container = {
   hidden: {},
@@ -103,8 +99,8 @@ export default function FundingPage() {
                       {pct.toFixed(1)}%
                     </span>
                     <span className="text-muted">
-                      {fmt.format(project.raised)} raised of{" "}
-                      {fmt.format(project.goal)} goal
+                      {formatAlgo(project.raised)} raised of{" "}
+                      {formatAlgo(project.goal)} goal
                     </span>
                   </div>
                 </div>

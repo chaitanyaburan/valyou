@@ -376,7 +376,7 @@ export default function ProfilePage() {
                           </div>
                         </div>
                         <div className="mt-3 flex items-center justify-between text-xs">
-                          <span className="font-bold tabular-nums">{p.price.toFixed(2)} VALU</span>
+                          <span className="font-bold tabular-nums">{p.price.toFixed(2)} ALGO</span>
                           <span className={p.changePercent >= 0 ? "text-gain font-medium" : "text-loss font-medium"}>
                             {p.changePercent >= 0 ? "+" : ""}{p.changePercent.toFixed(2)}%
                           </span>

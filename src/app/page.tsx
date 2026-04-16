@@ -6,11 +6,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
 import { projectFeed, stories, type ProjectPost, type TradeRecord, type Story } from "@/lib/social";
 import { projects, wallet } from "@/lib/data";
-import { SOL_TO_INR } from "@/lib/solana";
+import { formatAlgo } from "@/lib/algo";
 
-const fmt = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 const fmtShort = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
-const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 const container = {
   hidden: {},
@@ -39,8 +37,8 @@ function TierBadge({ tier }: { tier: string }) {
   );
 }
 
-function formatSolInr(solAmount: number): string {
-  return `${fmtShort.format(solAmount)} SOL · ${fmtInr.format(solAmount * SOL_TO_INR)}`;
+function priceLine(amount: number): string {
+  return formatAlgo(amount);
 }
 
 function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) {
@@ -121,7 +119,7 @@ function ProjectCard({
         <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
           <div className="rounded-lg bg-black/50 px-2.5 py-1 sm:px-3 sm:py-1.5 backdrop-blur-sm text-right">
             <p className="text-[8px] sm:text-[9px] text-white/50 uppercase tracking-wider">Share Price</p>
-            <p className="text-base sm:text-lg font-bold text-white">{formatSolInr(project.pricePerShare)}</p>
+            <p className="text-base sm:text-lg font-bold text-white">{priceLine(project.pricePerShare)}</p>
           </div>
         </div>
       </div>
@@ -172,8 +170,8 @@ function ProjectCard({
           <motion.div className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" initial={{ width: 0 }} animate={{ width: `${fundedPct}%` }} transition={{ duration: 1, ease: "easeOut" as const, delay: 0.3 }} />
         </div>
         <div className="mt-1.5 sm:mt-2 flex items-center justify-between text-[10px] sm:text-[11px]">
-          <span className="text-foreground/70">{fmt.format(project.fundingRaised)} <span className="text-muted">raised</span></span>
-          <span className="text-muted">Goal: {fmt.format(project.fundingGoal)}</span>
+          <span className="text-foreground/70">{formatAlgo(project.fundingRaised)} <span className="text-muted">raised</span></span>
+          <span className="text-muted">Goal: {formatAlgo(project.fundingGoal)}</span>
         </div>
         <div className="mt-1 sm:mt-1.5 flex items-center gap-3 sm:gap-4 text-[10px] text-muted">
           <span>{project.backers.toLocaleString()} backers</span>
@@ -233,11 +231,11 @@ function TradeHistorySidebar({ trades, onConfirm, onCancel }: { trades: TradeRec
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-lg bg-card px-3 py-2">
             <p className="text-[10px] text-muted">Balance</p>
-            <p className="text-sm font-bold text-foreground">{formatSolInr(wallet.balance)}</p>
+            <p className="text-sm font-bold text-foreground">{priceLine(wallet.balance)}</p>
           </div>
           <div className="rounded-lg bg-card px-3 py-2">
             <p className="text-[10px] text-muted">Invested</p>
-            <p className="text-sm font-bold text-foreground">{formatSolInr(wallet.invested)}</p>
+            <p className="text-sm font-bold text-foreground">{priceLine(wallet.invested)}</p>
           </div>
         </div>
       </motion.div>
@@ -261,13 +259,13 @@ function TradeHistorySidebar({ trades, onConfirm, onCancel }: { trades: TradeRec
           <div className="flex flex-col gap-2 max-h-[calc(100vh-400px)] overflow-y-auto scrollbar-none">
             {pending.length > 0 && (
               <>
-                <div className="flex items-center justify-between py-1"><span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Pending</span><span className="text-[10px] text-amber-400 font-bold">{formatSolInr(totalPending)}</span></div>
+                <div className="flex items-center justify-between py-1"><span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Pending</span><span className="text-[10px] text-amber-400 font-bold">{priceLine(totalPending)}</span></div>
                 {pending.map((trade) => (
                   <motion.div key={trade.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
                     <div className="flex items-center gap-2">
                       <Avatar initials={trade.creatorAvatar} size="sm" />
                       <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{trade.projectTitle}</p><p className="text-[10px] text-muted">{trade.creatorName} · {trade.timestamp}</p></div>
-                      <div className="text-right shrink-0"><p className="text-xs font-bold text-foreground">{trade.shares} shares</p><p className="text-[10px] text-muted">{formatSolInr(trade.amount)}</p></div>
+                      <div className="text-right shrink-0"><p className="text-xs font-bold text-foreground">{trade.shares} shares</p><p className="text-[10px] text-muted">{priceLine(trade.amount)}</p></div>
                     </div>
                     <div className="mt-2 flex gap-2">
                       <motion.button whileTap={{ scale: 0.95 }} onClick={() => onConfirm(trade.id)} className="flex-1 rounded-lg bg-gain/20 py-1.5 text-[10px] font-bold text-gain transition hover:bg-gain/30">Confirm</motion.button>
@@ -401,7 +399,7 @@ export default function HomePage() {
         <div className="grid grid-cols-2 gap-3 border-t border-card-border/70 px-5 py-4 sm:grid-cols-4 sm:px-8">
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted">Total Raised</p>
-            <p className="text-2xl font-bold text-gain">{fmt.format(totalRaised)}</p>
+            <p className="text-2xl font-bold text-gain">{formatAlgo(totalRaised)}</p>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted">Active Backers</p>
@@ -443,7 +441,7 @@ export default function HomePage() {
                 </div>
                 <p className="text-xs font-bold text-white truncate">{p.title}</p>
                 <p className="text-[10px] text-white/60 truncate">{p.creator.name}</p>
-                <p className="mt-2 text-sm font-bold text-white tabular-nums">{formatSolInr(p.price)}</p>
+                <p className="mt-2 text-sm font-bold text-white tabular-nums">{priceLine(p.price)}</p>
               </motion.div>
             </Link>
           ))}
@@ -597,11 +595,11 @@ export default function HomePage() {
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="rounded-lg border border-card-border p-3">
                     <p className="text-muted">Price / Share</p>
-                    <p className="font-semibold">{formatSolInr(activeInvestProject.pricePerShare)}</p>
+                    <p className="font-semibold">{priceLine(activeInvestProject.pricePerShare)}</p>
                   </div>
                   <div className="rounded-lg border border-card-border p-3">
                     <p className="text-muted">Account Balance</p>
-                    <p className="font-semibold">{wallet.balance.toFixed(4)} SOL · {fmtInr.format(wallet.balance * SOL_TO_INR)}</p>
+                    <p className="font-semibold">{formatAlgo(wallet.balance)}</p>
                   </div>
                 </div>
 
@@ -619,13 +617,13 @@ export default function HomePage() {
                 <div className="rounded-lg border border-card-border p-3 text-sm">
                   <p className="text-muted">Total price</p>
                   <p className="font-semibold">
-                    {formatSolInr(investShares * activeInvestProject.pricePerShare)}
+                    {priceLine(investShares * activeInvestProject.pricePerShare)}
                   </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => showToast("Use dashboard to add SOL balance with Devnet faucet.")}
+                    onClick={() => showToast("Use dashboard to add ALGO balance.")}
                     className="rounded-lg border border-gain/60 px-3 py-2 text-xs font-semibold text-gain transition hover:bg-gain/10"
                   >
                     Add Balance

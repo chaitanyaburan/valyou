@@ -9,7 +9,8 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.98.4",
+    "@perawallet/connect": "^1.5.2",
+    "algosdk": "^3.5.2",
     "framer-motion": "^12.38.0",
     "mongoose": "^9.4.1",
     "next": "16.2.3",

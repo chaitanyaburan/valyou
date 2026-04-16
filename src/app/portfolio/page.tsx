@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  PublicKey,
-  SystemProgram,
-  Transaction,
-  type TransactionSignature,
-} from "@solana/web3.js";
-import { WalletProvider, useWallet } from "@/components/providers/WalletProvider";
-import { DEMO_RECEIVER_WALLET, DEVNET_CONNECTION, LAMPORTS, SOL_TO_INR } from "@/lib/solana";
+import { usePeraTestnet } from "@/components/providers/PeraTestnetProvider";
+import { useWalletConnectionMode } from "@/components/providers/WalletConnectionModeProvider";
+import { useWallet } from "@/components/providers/WalletProvider";
+import { formatAlgo, formatAlgoShort } from "@/lib/algo";
+import { TESTNET_FAUCET_URL, algoToMicro, clampPaymentMicro, microToAlgo } from "@/lib/algorand-constants";
+import { signAndSubmitTestnetPayment } from "@/lib/testnet-investment-client";
 import type { StartupProject } from "@/lib/mock-store";
 
 type Investment = {
@@ -18,28 +16,27 @@ type Investment = {
   transaction_hash: string;
 };
 
-const inrFormat = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
+function mockTxId(): string {
+  return `algo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 function PortfolioDashboard() {
-  const { walletAddress, connectWallet, connecting, balanceSol, requestAirdrop, refreshBalance } =
-    useWallet();
+  const mock = useWallet();
+  const { mode, setMode } = useWalletConnectionMode();
+  const pera = usePeraTestnet();
+  const [testnetReady, setTestnetReady] = useState(false);
+
+  const walletAddress = mode === "demo" ? mock.walletAddress : pera.activeAccount;
+
   const [projects, setProjects] = useState<StartupProject[]>([]);
   const [investments, setInvestments] = useState<Investment[]>([]);
   const [toast, setToast] = useState<string | null>(null);
-  const [sellingSol, setSellingSol] = useState(false);
   const [withdrawingHash, setWithdrawingHash] = useState<string | null>(null);
   const [investingProjectId, setInvestingProjectId] = useState<string | null>(null);
-  const [sellSolAmount, setSellSolAmount] = useState(0.1);
   const [activeInvestProject, setActiveInvestProject] = useState<StartupProject | null>(null);
   const [draftShares, setDraftShares] = useState(1);
   const [confirmingPurchase, setConfirmingPurchase] = useState(false);
-  const [inrBalance, setInrBalance] = useState(0);
-  const [txState, setTxState] = useState<string>("");
-  const [hasPhantom, setHasPhantom] = useState(false);
-
-  useEffect(() => {
-    setHasPhantom(Boolean(window?.solana?.isPhantom));
-  }, []);
+  const [txState, setTxState] = useState("");
 
   useEffect(() => {
     if (!toast) return;
@@ -65,10 +62,16 @@ function PortfolioDashboard() {
   }, [walletAddress]);
 
   useEffect(() => {
-    if (!walletAddress) return;
-    const value = localStorage.getItem(`valyou-inr-${walletAddress}`);
-    setInrBalance(value ? Number(value) : 0);
-  }, [walletAddress]);
+    void (async () => {
+      try {
+        const res = await fetch("/api/algorand/config");
+        const data = (await res.json()) as { testnetReady?: boolean };
+        setTestnetReady(Boolean(data.testnetReady));
+      } catch {
+        setTestnetReady(false);
+      }
+    })();
+  }, []);
 
   const investmentRows = useMemo(() => {
     return investments.map((investment) => {
@@ -76,40 +79,55 @@ function PortfolioDashboard() {
       const basePrice = project?.price_per_token ?? 0;
       const utilization = project ? project.sold_tokens / project.total_tokens : 0;
       const currentPrice = basePrice * (1 + utilization * 0.2);
-      const investedSol = basePrice * investment.tokens_owned;
-      const currentValueSol = currentPrice * investment.tokens_owned;
+      const investedAlgo = basePrice * investment.tokens_owned;
+      const currentValueAlgo = currentPrice * investment.tokens_owned;
       return {
         ...investment,
         projectName: project?.name ?? investment.project_id,
         basePrice,
         currentPrice,
-        investedSol,
-        currentValueSol,
-        pnlSol: currentValueSol - investedSol,
+        investedAlgo,
+        currentValueAlgo,
+        pnlAlgo: currentValueAlgo - investedAlgo,
       };
     });
   }, [investments, projects]);
 
-  const totalInvestedSol = investmentRows.reduce((sum, item) => sum + item.investedSol, 0);
-  const totalCurrentValueSol = investmentRows.reduce((sum, item) => sum + item.currentValueSol, 0);
-  const totalPnlSol = totalCurrentValueSol - totalInvestedSol;
+  const totalInvestedAlgo = investmentRows.reduce((sum, item) => sum + item.investedAlgo, 0);
+  const totalCurrentValueAlgo = investmentRows.reduce((sum, item) => sum + item.currentValueAlgo, 0);
+  const totalPnlAlgo = totalCurrentValueAlgo - totalInvestedAlgo;
 
-  async function handleBuySol() {
-    try {
-      await requestAirdrop(1);
-      setToast("Added 1 SOL using Devnet faucet (simulated buy).");
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "Airdrop failed");
+  const balanceLabel =
+    mode === "demo"
+      ? formatAlgo(mock.balanceAlgo)
+      : pera.balanceMicro != null
+        ? formatAlgoShort(microToAlgo(pera.balanceMicro))
+        : "Loading…";
+
+  const isWalletConnected = mode === "demo" ? Boolean(mock.walletAddress) : Boolean(pera.activeAccount);
+  const isWalletBusy = mode === "demo" ? mock.connecting : pera.connecting;
+
+  async function handleAddBalance() {
+    if (mode === "demo") {
+      try {
+        await mock.requestAirdrop(10);
+        setToast(`Added ${formatAlgo(10)} to your wallet (demo).`);
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "Could not add balance.");
+      }
+      return;
     }
+    setToast("Use the TestNet faucet to add ALGO, then tap refresh in the nav wallet.");
+    window.open(TESTNET_FAUCET_URL, "_blank", "noopener,noreferrer");
+    await pera.refreshBalance();
   }
 
   async function handleConnectWallet() {
     try {
-      await connectWallet();
+      if (mode === "demo") await mock.connectWallet();
+      else await pera.connect();
     } catch (error) {
-      setToast(
-        error instanceof Error ? error.message : "Unable to connect wallet. Please try again.",
-      );
+      setToast(error instanceof Error ? error.message : "Unable to connect wallet.");
     }
   }
 
@@ -132,13 +150,17 @@ function PortfolioDashboard() {
         }),
       });
 
-      // Simulate receiving withdrawn amount back to wallet on Devnet.
-      await requestAirdrop(Math.min(1, Math.max(0.1, row.currentValueSol)));
+      if (mode === "demo") mock.creditAlgo(row.currentValueAlgo);
 
       const refreshed = await fetch(`/api/investments?wallet=${walletAddress}`);
       const data = (await refreshed.json()) as { investments: Investment[] };
       setInvestments(data.investments);
-      setToast("Withdrawal complete. Value added back to wallet (Devnet simulation).");
+      await (mode === "demo" ? mock.refreshBalance() : pera.refreshBalance());
+      setToast(
+        mode === "demo"
+          ? `Withdrawn ${formatAlgo(row.currentValueAlgo)} back to your wallet.`
+          : "Removed from portfolio. (TestNet ALGO was already sent on-chain; this only updates the app.)",
+      );
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Withdrawal failed");
     } finally {
@@ -147,46 +169,51 @@ function PortfolioDashboard() {
   }
 
   async function handleInvest(project: StartupProject, shares: number) {
-    if (!walletAddress || !window.solana?.publicKey) {
-      setToast("Phantom wallet not found. Install Phantom extension.");
+    if (!walletAddress) {
+      setToast("Connect wallet first.");
       return;
     }
 
     const safeShares = Math.max(1, shares);
-    const totalCostSol = safeShares * project.price_per_token;
-    const totalCostInr = totalCostSol * SOL_TO_INR;
-    if (balanceSol < totalCostSol) {
-      setToast(
-        `Insufficient SOL. Need ${totalCostSol.toFixed(4)} SOL (₹${inrFormat.format(totalCostInr)}).`,
-      );
-      return;
+    const totalCost = safeShares * project.price_per_token;
+
+    if (mode === "demo") {
+      if (!mock.trySpendAlgo(totalCost)) {
+        setToast(`Insufficient balance. You need ${formatAlgo(totalCost)}.`);
+        return;
+      }
+    } else {
+      if (!testnetReady) {
+        setToast("TestNet is not configured. Set ALGORAND_DEMO_RECEIVER in .env.local.");
+        return;
+      }
+      if (!pera.activeAccount) {
+        setToast("Connect Pera Wallet first (TestNet).");
+        return;
+      }
+      const needMicro = clampPaymentMicro(algoToMicro(totalCost)) + 3000;
+      if (pera.balanceMicro != null && pera.balanceMicro < needMicro) {
+        setToast(`Insufficient on-chain balance. Need about ${formatAlgo(totalCost)} plus fees.`);
+        return;
+      }
     }
 
     setInvestingProjectId(project.id);
-    setTxState("Preparing transaction...");
+    setTxState(mode === "demo" ? "Processing purchase..." : "Building transaction…");
     try {
-      const lamports = Math.floor(totalCostSol * LAMPORTS);
-      const fromPubkey = new PublicKey(walletAddress);
-      const latestBlockhash = await DEVNET_CONNECTION.getLatestBlockhash("confirmed");
-
-      const tx = new Transaction({
-        feePayer: fromPubkey,
-        recentBlockhash: latestBlockhash.blockhash,
-      }).add(
-        SystemProgram.transfer({
-          fromPubkey,
-          toPubkey: DEMO_RECEIVER_WALLET,
-          lamports,
-        }),
-      );
-
-      setTxState("Waiting for wallet approval...");
-      const signed = await window.solana.signTransaction(tx);
-      const signature: TransactionSignature = await DEVNET_CONNECTION.sendRawTransaction(
-        signed.serialize(),
-      );
-      setTxState("Confirming on Solana network...");
-      await DEVNET_CONNECTION.confirmTransaction(signature, "confirmed");
+      let signature: string;
+      if (mode === "demo") {
+        signature = mockTxId();
+      } else {
+        setTxState("Waiting for signature in Pera…");
+        signature = await signAndSubmitTestnetPayment({
+          sender: pera.activeAccount!,
+          costAlgo: totalCost,
+          note: { app: "valyou-portfolio", projectId: project.id, tokens: safeShares },
+          signTransactionGroup: pera.signTransactionGroup,
+        });
+        setTxState("Confirming on Algorand…");
+      }
 
       await fetch("/api/investments", {
         method: "POST",
@@ -194,7 +221,7 @@ function PortfolioDashboard() {
         body: JSON.stringify({
           user_wallet: walletAddress,
           project_id: project.id,
-          tokens_owned: shares,
+          tokens_owned: safeShares,
           transaction_hash: signature,
         }),
       });
@@ -202,13 +229,14 @@ function PortfolioDashboard() {
       const refreshed = await fetch(`/api/investments?wallet=${walletAddress}`);
       const data = (await refreshed.json()) as { investments: Investment[] };
       setInvestments(data.investments);
-      await refreshBalance();
-      setTxState("Transaction successful ✅");
-      setToast(`Invested in ${project.name}: ${safeShares} shares (${totalCostSol.toFixed(4)} SOL).`);
+      await (mode === "demo" ? mock.refreshBalance() : pera.refreshBalance());
+      setTxState("Purchase complete ✅");
+      setToast(`Invested in ${project.name}: ${safeShares} shares for ${formatAlgo(totalCost)}.`);
       setActiveInvestProject(null);
       setConfirmingPurchase(false);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Investment transaction failed");
+      if (mode === "demo") mock.creditAlgo(totalCost);
+      setToast(error instanceof Error ? error.message : "Purchase failed");
       setTxState("");
     } finally {
       setTimeout(() => setTxState(""), 1500);
@@ -222,57 +250,6 @@ function PortfolioDashboard() {
     setConfirmingPurchase(false);
   }
 
-  async function handleSellSolForInr() {
-    if (!walletAddress || !window.solana?.publicKey) {
-      setToast("Connect Phantom wallet first.");
-      return;
-    }
-    if (sellSolAmount <= 0) {
-      setToast("Enter a valid SOL amount.");
-      return;
-    }
-    if (sellSolAmount >= balanceSol) {
-      setToast("Not enough SOL balance.");
-      return;
-    }
-
-    setSellingSol(true);
-    try {
-      // Real Devnet transfer to demo treasury represents selling SOL.
-      const lamports = Math.floor(sellSolAmount * LAMPORTS);
-      const fromPubkey = new PublicKey(walletAddress);
-      const latestBlockhash = await DEVNET_CONNECTION.getLatestBlockhash("confirmed");
-
-      const tx = new Transaction({
-        feePayer: fromPubkey,
-        recentBlockhash: latestBlockhash.blockhash,
-      }).add(
-        SystemProgram.transfer({
-          fromPubkey,
-          toPubkey: DEMO_RECEIVER_WALLET,
-          lamports,
-        }),
-      );
-
-      const signed = await window.solana.signTransaction(tx);
-      const signature: TransactionSignature = await DEVNET_CONNECTION.sendRawTransaction(
-        signed.serialize(),
-      );
-      await DEVNET_CONNECTION.confirmTransaction(signature, "confirmed");
-
-      const creditedInr = sellSolAmount * SOL_TO_INR;
-      const nextInr = inrBalance + creditedInr;
-      setInrBalance(nextInr);
-      localStorage.setItem(`valyou-inr-${walletAddress}`, String(nextInr));
-      await refreshBalance();
-      setToast(`Sold ${sellSolAmount.toFixed(3)} SOL and credited ₹${inrFormat.format(creditedInr)}.`);
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "Sell transaction failed");
-    } finally {
-      setSellingSol(false);
-    }
-  }
-
   return (
     <section className="py-8 space-y-5">
       <h1 className="text-3xl font-bold tracking-tight">User Dashboard</h1>
@@ -280,112 +257,140 @@ function PortfolioDashboard() {
         <div className="glass-card border border-accent/40 p-3 text-sm text-accent-light">{txState}</div>
       )}
 
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-4">
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("demo")}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              mode === "demo" ? "bg-accent text-white" : "border border-card-border text-muted hover:text-foreground"
+            }`}
+          >
+            Demo wallet
+          </button>
+          <button
+            type="button"
+            title={testnetReady ? "" : "Set ALGORAND_DEMO_RECEIVER in .env.local"}
+            onClick={() => setMode("testnet")}
+            disabled={!testnetReady}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              mode === "testnet" ? "bg-accent text-white" : "border border-card-border text-muted hover:text-foreground"
+            } disabled:cursor-not-allowed disabled:opacity-40`}
+          >
+            Pera TestNet
+          </button>
+        </div>
+
+        {mode === "testnet" && !testnetReady ? (
+          <p className="text-sm text-amber-200/90">
+            TestNet payments need <code className="rounded bg-black/20 px-1">ALGORAND_DEMO_RECEIVER</code> in{" "}
+            <code className="rounded bg-black/20 px-1">.env.local</code>, then restart the dev server.
+          </p>
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-2">
           <button
+            type="button"
             onClick={() => void handleConnectWallet()}
-            disabled={!hasPhantom || Boolean(walletAddress) || connecting}
+            disabled={isWalletConnected || isWalletBusy}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent-light disabled:opacity-60"
           >
-            {walletAddress ? "Wallet Connected" : connecting ? "Connecting..." : "Connect Phantom"}
+            {isWalletConnected
+              ? mode === "demo"
+                ? "Demo wallet connected"
+                : "Pera connected"
+              : isWalletBusy
+                ? "Connecting…"
+                : mode === "demo"
+                  ? "Connect demo wallet"
+                  : "Connect Pera (TestNet)"}
           </button>
+          {mode === "testnet" && pera.connected ? (
+            <button
+              type="button"
+              onClick={() => void pera.disconnect()}
+              className="rounded-lg border border-card-border px-4 py-2 text-sm font-semibold text-foreground transition hover:bg-card"
+            >
+              Disconnect Pera
+            </button>
+          ) : null}
           <button
-            onClick={() => void handleBuySol()}
-            disabled={!walletAddress}
+            type="button"
+            onClick={() => void handleAddBalance()}
+            disabled={!isWalletConnected}
             className="rounded-lg bg-gain px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
           >
-            Buy SOL (Devnet)
+            {mode === "demo" ? "Add balance (+10 ALGO)" : "Faucet + refresh balance"}
           </button>
+          {mode === "testnet" ? (
+            <button
+              type="button"
+              onClick={() => void pera.refreshBalance()}
+              disabled={!pera.activeAccount}
+              className="rounded-lg border border-card-border px-4 py-2 text-sm font-semibold transition hover:bg-card disabled:opacity-50"
+            >
+              Refresh on-chain balance
+            </button>
+          ) : null}
         </div>
-        {!hasPhantom && (
-          <p className="mt-3 text-xs text-amber-300">
-            Phantom wallet not found. Install Phantom extension to connect wallet.
-          </p>
-        )}
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-lg border border-card-border p-3">
-            <p className="text-xs text-muted">SOL Wallet Balance</p>
-            <p className="text-lg font-semibold">{balanceSol.toFixed(4)} SOL</p>
-          </div>
-          <div className="rounded-lg border border-card-border p-3">
-            <p className="text-xs text-muted">INR Equivalent</p>
-            <p className="text-lg font-semibold">₹{inrFormat.format(balanceSol * SOL_TO_INR)}</p>
-          </div>
-          <div className="rounded-lg border border-card-border p-3">
-            <p className="text-xs text-muted">INR Account (after selling SOL)</p>
-            <p className="text-lg font-semibold">₹{inrFormat.format(inrBalance)}</p>
-          </div>
-        </div>
-      </div>
 
-      <div className="glass-card p-4">
-        <h2 className="text-sm font-semibold">Sell SOL → INR</h2>
-        <p className="mt-1 text-xs text-muted">
-          Performs a real Devnet transfer and credits INR in your simulated account.
-        </p>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <input
-            type="number"
-            min={0.01}
-            step={0.01}
-            value={sellSolAmount}
-            onChange={(event) => setSellSolAmount(Number(event.target.value) || 0)}
-            className="w-32 rounded-lg border border-card-border bg-card px-3 py-2 text-sm outline-none focus:border-accent/60"
-          />
-          <button
-            onClick={() => void handleSellSolForInr()}
-            disabled={!walletAddress || sellingSol}
-            className="rounded-lg border border-accent/60 px-4 py-2 text-sm font-semibold text-accent-light transition hover:bg-accent/10 disabled:opacity-60"
-          >
-            {sellingSol ? "Selling..." : "Sell SOL"}
-          </button>
+        <div className="rounded-lg border border-card-border p-3">
+          <p className="text-xs text-muted">
+            {mode === "demo" ? "Demo balance (stored in this browser)" : "On-chain balance (Algorand TestNet)"}
+          </p>
+          <p className="text-lg font-semibold">{balanceLabel}</p>
+          {walletAddress ? (
+            <p className="mt-1 break-all text-[10px] text-muted">{walletAddress}</p>
+          ) : (
+            <p className="mt-1 text-[10px] text-muted">
+              {mode === "demo" ? "Not connected" : "Connect Pera to see your TestNet address"}
+            </p>
+          )}
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="glass-card p-4">
           <p className="text-xs text-muted">Total Invested</p>
-          <p className="text-xl font-semibold">{totalInvestedSol.toFixed(4)} SOL</p>
+          <p className="text-xl font-semibold">{formatAlgo(totalInvestedAlgo)}</p>
         </div>
         <div className="glass-card p-4">
           <p className="text-xs text-muted">Current Value</p>
-          <p className="text-xl font-semibold">{totalCurrentValueSol.toFixed(4)} SOL</p>
+          <p className="text-xl font-semibold">{formatAlgo(totalCurrentValueAlgo)}</p>
         </div>
         <div className="glass-card p-4">
           <p className="text-xs text-muted">P&L</p>
-          <p className={`text-xl font-semibold ${totalPnlSol >= 0 ? "text-gain" : "text-loss"}`}>
-            {totalPnlSol >= 0 ? "+" : ""}
-            {totalPnlSol.toFixed(4)} SOL
+          <p className={`text-xl font-semibold ${totalPnlAlgo >= 0 ? "text-gain" : "text-loss"}`}>
+            {totalPnlAlgo >= 0 ? "+" : ""}
+            {formatAlgo(totalPnlAlgo)}
           </p>
         </div>
       </div>
 
       <div className="glass-card p-4">
-        <h2 className="text-sm font-semibold">All Projects (Invest Using SOL)</h2>
+        <h2 className="text-sm font-semibold">All Projects</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {projects.map((project) => {
-            return (
-              <div key={project.id} className="rounded-lg border border-card-border p-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold">{project.name}</p>
-                  <span className="text-xs text-muted">{project.id}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted">{project.description}</p>
-                <p className="mt-2 text-xs">
-                  Price / Share: <span className="font-semibold">{project.price_per_token.toFixed(4)} SOL</span>{" "}
-                  · <span className="font-semibold">₹{inrFormat.format(project.price_per_token * SOL_TO_INR)}</span>
-                </p>
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    onClick={() => openInvestModal(project)}
-                    className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-accent-light"
-                  >
-                    Invest
-                  </button>
-                </div>
+          {projects.map((project) => (
+            <div key={project.id} className="rounded-lg border border-card-border p-3">
+              <div className="flex items-center justify-between">
+                <p className="font-semibold">{project.name}</p>
+                <span className="text-xs text-muted">{project.id}</span>
               </div>
-            );
-          })}
+              <p className="mt-1 text-xs text-muted">{project.description}</p>
+              <p className="mt-2 text-xs">
+                Price / Share:{" "}
+                <span className="font-semibold">{formatAlgo(project.price_per_token)}</span>
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={() => openInvestModal(project)}
+                  className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-accent-light"
+                >
+                  Invest
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -405,7 +410,7 @@ function PortfolioDashboard() {
             {investmentRows.length === 0 ? (
               <tr>
                 <td className="px-4 py-6 text-sm text-muted" colSpan={6}>
-                  No investments yet. Select any project above and invest using SOL.
+                  No investments yet. Pick a project above and invest with ALGO.
                 </td>
               </tr>
             ) : (
@@ -419,13 +424,13 @@ function PortfolioDashboard() {
                     <p className="text-xs text-muted">{row.project_id}</p>
                   </td>
                   <td className="px-4 py-4 text-right">{row.tokens_owned}</td>
-                  <td className="px-4 py-4 text-right">{row.basePrice.toFixed(4)} SOL</td>
-                  <td className="px-4 py-4 text-right">{row.currentPrice.toFixed(4)} SOL</td>
+                  <td className="px-4 py-4 text-right">{formatAlgo(row.basePrice)}</td>
+                  <td className="px-4 py-4 text-right">{formatAlgo(row.currentPrice)}</td>
                   <td className="px-4 py-4 text-right">
-                    <p>{row.currentValueSol.toFixed(4)} SOL</p>
-                    <p className={`text-xs ${row.pnlSol >= 0 ? "text-gain" : "text-loss"}`}>
-                      {row.pnlSol >= 0 ? "+" : ""}
-                      {row.pnlSol.toFixed(4)} SOL
+                    <p>{formatAlgo(row.currentValueAlgo)}</p>
+                    <p className={`text-xs ${row.pnlAlgo >= 0 ? "text-gain" : "text-loss"}`}>
+                      {row.pnlAlgo >= 0 ? "+" : ""}
+                      {formatAlgo(row.pnlAlgo)}
                     </p>
                   </td>
                   <td className="px-4 py-4 text-right">
@@ -473,16 +478,11 @@ function PortfolioDashboard() {
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div className="rounded-lg border border-card-border p-3">
                   <p className="text-muted">Price / Share</p>
-                  <p className="font-semibold">
-                    {activeInvestProject.price_per_token.toFixed(4)} SOL · ₹
-                    {inrFormat.format(activeInvestProject.price_per_token * SOL_TO_INR)}
-                  </p>
+                  <p className="font-semibold">{formatAlgo(activeInvestProject.price_per_token)}</p>
                 </div>
                 <div className="rounded-lg border border-card-border p-3">
-                  <p className="text-muted">Account Balance</p>
-                  <p className="font-semibold">
-                    {balanceSol.toFixed(4)} SOL · ₹{inrFormat.format(balanceSol * SOL_TO_INR)}
-                  </p>
+                  <p className="text-muted">Account balance</p>
+                  <p className="font-semibold">{balanceLabel}</p>
                 </div>
               </div>
 
@@ -500,18 +500,17 @@ function PortfolioDashboard() {
               <div className="rounded-lg border border-card-border p-3 text-sm">
                 <p className="text-muted">Total price</p>
                 <p className="font-semibold">
-                  {(draftShares * activeInvestProject.price_per_token).toFixed(4)} SOL · ₹
-                  {inrFormat.format(draftShares * activeInvestProject.price_per_token * SOL_TO_INR)}
+                  {formatAlgo(draftShares * activeInvestProject.price_per_token)}
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => void handleBuySol()}
+                  onClick={() => void handleAddBalance()}
                   disabled={!walletAddress}
                   className="rounded-lg border border-gain/60 px-3 py-2 text-xs font-semibold text-gain transition hover:bg-gain/10 disabled:opacity-60"
                 >
-                  Add Balance (Get 1 SOL)
+                  Add balance (+10 ALGO)
                 </button>
                 {!confirmingPurchase ? (
                   <button
@@ -519,7 +518,7 @@ function PortfolioDashboard() {
                     disabled={!walletAddress}
                     className="ml-auto rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white transition hover:bg-accent-light disabled:opacity-60"
                   >
-                    Buy Shares
+                    Buy shares
                   </button>
                 ) : (
                   <div className="ml-auto flex items-center gap-2">
@@ -549,9 +548,5 @@ function PortfolioDashboard() {
 }
 
 export default function PortfolioPage() {
-  return (
-    <WalletProvider>
-      <PortfolioDashboard />
-    </WalletProvider>
-  );
+  return <PortfolioDashboard />;
 }

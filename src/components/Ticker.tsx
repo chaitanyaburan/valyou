@@ -1,13 +1,7 @@
 "use client";
 
 import { projects } from "@/lib/data";
-import { SOL_TO_INR } from "@/lib/solana";
-
-const fmtInr = new Intl.NumberFormat("en-IN", {
-  style: "currency",
-  currency: "INR",
-  maximumFractionDigits: 0,
-});
+import { formatAlgo } from "@/lib/algo";
 
 export default function Ticker() {
   const items = [...projects, ...projects];
@@ -18,9 +12,7 @@ export default function Ticker() {
         {items.map((p, i) => (
           <span key={`${p.id}-${i}`} className="mx-4 inline-flex items-center gap-2 text-xs">
             <span className="font-medium text-foreground/80">{p.title}</span>
-            <span className="tabular-nums text-foreground/60">
-              {p.price.toFixed(2)} SOL · {fmtInr.format(p.price * SOL_TO_INR)}
-            </span>
+            <span className="tabular-nums text-foreground/60">{formatAlgo(p.price, 2)}</span>
             <span className={p.changePercent >= 0 ? "text-gain" : "text-loss"}>
               {p.changePercent >= 0 ? "+" : ""}
               {p.changePercent.toFixed(2)}%

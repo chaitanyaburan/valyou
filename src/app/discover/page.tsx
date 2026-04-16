@@ -14,8 +14,7 @@ import Avatar from "@/components/Avatar";
 import SparklineChart from "@/components/SparklineChart";
 import { BatchTimelineCompact } from "@/components/BatchTimeline";
 
-const fmtPrice = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
-const fmt = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+import { formatAlgo } from "@/lib/algo";
 
 // ── Preference options ──
 
@@ -35,10 +34,10 @@ const styleOptions = [
 ];
 
 const budgetOptions = [
-  { id: "small", label: "Under ₹1K", value: 1000, desc: "Explore with small stakes" },
-  { id: "medium", label: "₹1K – ₹5K", value: 5000, desc: "Moderate investment per project" },
-  { id: "large", label: "₹5K – ₹20K", value: 20000, desc: "Serious backing for favorites" },
-  { id: "whale", label: "₹20K+", value: 50000, desc: "Go big on conviction bets" },
+  { id: "small", label: "Under 100 ALGO", value: 1000, desc: "Explore with small stakes" },
+  { id: "medium", label: "100 – 500 ALGO", value: 5000, desc: "Moderate investment per project" },
+  { id: "large", label: "500 – 2,000 ALGO", value: 20000, desc: "Serious backing for favorites" },
+  { id: "whale", label: "2,000+ ALGO", value: 50000, desc: "Go big on conviction bets" },
 ];
 
 interface Preferences {
@@ -356,7 +355,7 @@ function SwipeCard({
         {/* Price + Chart */}
         <div className="flex items-center gap-4 mb-4">
           <div>
-            <p className="text-xl font-bold tabular-nums">{fmtPrice.format(project.price)} <span className="text-xs text-muted font-normal">VALU</span></p>
+            <p className="text-xl font-bold tabular-nums">{formatAlgo(project.price, 2)}</p>
             <span className={`text-xs font-semibold ${project.changePercent >= 0 ? "text-gain" : "text-loss"}`}>
               {project.changePercent >= 0 ? "+" : ""}{project.changePercent.toFixed(1)}% today
             </span>
@@ -376,7 +375,7 @@ function SwipeCard({
             <motion.div className={`h-full rounded-full ${fundedPct >= 80 ? "bg-gradient-to-r from-gain to-emerald-400" : "bg-gradient-to-r from-accent to-purple-400"}`} initial={{ width: 0 }} animate={{ width: `${fundedPct}%` }} transition={{ duration: 1, ease: "easeOut" as const, delay: 0.2 }} />
           </div>
           <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted">
-            <span>{fmt.format(project.fundingRaised)} raised</span>
+            <span>{formatAlgo(project.fundingRaised)} raised</span>
             <span>{project.backers.toLocaleString()} backers · {project.daysLeft}d left</span>
           </div>
         </div>

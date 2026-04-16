@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "./Avatar";
+import WalletNavbarBadge from "./WalletNavbarBadge";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -68,6 +69,7 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-3">
+          <WalletNavbarBadge />
           {/* Mobile search toggle */}
           <button onClick={() => setSearchOpen(!searchOpen)} className="sm:hidden p-2 rounded-lg text-muted hover:text-foreground hover:bg-card transition">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
