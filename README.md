@@ -14,7 +14,7 @@ pnpm dev
 bun dev
 ```
 
-Open http://valyouu.vercel.app
+Open https://valyouu.vercel.app
 
 ## MongoDB setup
 
