@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { apiGetCoupons } from "@/lib/api-client";
 import type { Coupon } from "@/lib/data";
+import { useWalletUserId } from "@/contexts/AuthContext";
 
 const filters = ["All", "Active", "Used", "Expired"] as const;
 type Filter = (typeof filters)[number];
@@ -59,13 +60,14 @@ const statusConfig = {
 } as const;
 
 export default function RewardsPage() {
+  const walletUserId = useWalletUserId();
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [active, setActive] = useState<Filter>("All");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
-    apiGetCoupons("demo").then(setCoupons).catch(() => setCoupons([]));
-  }, []);
+    apiGetCoupons(walletUserId).then(setCoupons).catch(() => setCoupons([]));
+  }, [walletUserId]);
 
   const list = useMemo(() => filterCoupons(coupons, active), [active, coupons]);
   const activeCount = useMemo(() => coupons.filter((c) => c.status === "active").length, [coupons]);

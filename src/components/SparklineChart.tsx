@@ -20,10 +20,10 @@ export default function SparklineChart({ data, positive }: SparklineChartProps) 
       initial={{ opacity: 0, scaleX: 0.6 }}
       animate={{ opacity: 1, scaleX: 1 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className="h-[40px] w-full origin-left"
+      className="h-[40px] min-w-0 w-full origin-left"
     >
       {mounted ? (
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
           <LineChart data={chartData}>
             <Line
               type="monotone"

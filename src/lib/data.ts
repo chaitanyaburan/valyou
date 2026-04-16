@@ -26,7 +26,7 @@ export interface Batch {
   description: string;
   deadline: string;
   completedAt?: string;
-  status: "completed" | "in_progress" | "overdue" | "upcoming";
+  status: "completed" | "in_progress" | "overdue" | "upcoming" | "blocked";
   priceImpact: number;
   /** Shipped items investors can verify */
   deliverablesDone?: string[];
@@ -40,6 +40,13 @@ export interface Batch {
   transparencyLinks?: BatchTransparencyLink[];
   /** Last time the creator posted an investor-facing update for this batch */
   lastInvestorUpdate?: string;
+  /** Last proof package id submitted for this batch */
+  proofPackageId?: string;
+  verificationStatus?: "unverified" | "verified" | "needs_review" | "rejected" | "blocked";
+  verificationScore?: number;
+  riskFlags?: string[];
+  submittedAt?: string;
+  verifiedAt?: string;
 }
 
 /** Resolved copy for the interactive investor timeline UI */
@@ -128,6 +135,8 @@ export interface ProjectHealth {
 // ─── Tradeable entity: a Project ───
 export interface ProjectStock {
   id: string;
+  /** Same as creator.id when loaded from API */
+  creatorId?: string;
   title: string;
   tagline: string;
   creator: Creator;
@@ -150,6 +159,9 @@ export interface ProjectStock {
   filterCategory: "trending" | "top" | "new";
   batches: Batch[];
   timelineLocked: boolean;
+  /** Published projects freeze milestone structure (server-enforced). */
+  publicationLocked?: boolean;
+  publishedAt?: string;
   dispute?: Dispute;
 }
 

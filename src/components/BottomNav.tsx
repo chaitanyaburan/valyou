@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
 
-const tabs = [
+const staticTabs = [
   {
     label: "Home",
     href: "/",
@@ -43,7 +45,7 @@ const tabs = [
   },
   {
     label: "Profile",
-    href: "/profile/sneha-iyer",
+    href: "__PROFILE__",
     icon: (
       <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
@@ -54,12 +56,24 @@ const tabs = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const profileHref = user ? `/profile/${user.userId}` : "/auth/sign-in";
+
+  const tabs = useMemo(() => {
+    return staticTabs.map((t) =>
+      t.href === "__PROFILE__" ? { ...t, href: profileHref } : t,
+    );
+  }, [profileHref]);
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 lg:hidden border-t border-card-border bg-background/90 backdrop-blur-xl safe-bottom">
       <div className="flex items-center justify-around px-1 h-14">
         {tabs.map(({ label, href, icon }) => {
-          const isActive = pathname === href || (href !== "/" && href !== "/profile/sneha-iyer" && pathname.startsWith(href));
+          const isProfile = label === "Profile";
+          const isActive =
+            pathname === href ||
+            (!isProfile && href !== "/" && pathname.startsWith(href)) ||
+            (isProfile && pathname.startsWith("/profile"));
           return (
             <Link
               key={href}

@@ -161,6 +161,10 @@ export interface UserProfile {
   githubRepos: number;
   githubStreak: number;
   linkedinConnections: number;
+  /** Optional — developer credibility handles (Mongo-backed profiles) */
+  credibilityGithub?: string;
+  credibilityLeetcode?: string;
+  credibilityCodeforces?: string;
 }
 
 const bios: Record<string, string> = {

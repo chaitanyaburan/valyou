@@ -16,6 +16,7 @@ function statusColor(status: Batch["status"]) {
     case "completed": return "bg-green/20 text-green border-green/30";
     case "in_progress": return "bg-accent/20 text-accent-light border-accent/30";
     case "overdue": return "bg-red/20 text-red border-red/30";
+    case "blocked": return "bg-amber-500/15 text-amber-300 border-amber-400/30";
     case "upcoming": return "bg-muted/10 text-muted border-card-border";
   }
 }
@@ -25,6 +26,7 @@ function statusDot(status: Batch["status"]) {
     case "completed": return "bg-green";
     case "in_progress": return "bg-accent";
     case "overdue": return "bg-red";
+    case "blocked": return "bg-amber-400";
     case "upcoming": return "bg-muted/40";
   }
 }
@@ -34,7 +36,23 @@ function statusLabel(status: Batch["status"]) {
     case "completed": return "Completed";
     case "in_progress": return "In progress";
     case "overdue": return "Overdue";
+    case "blocked": return "Blocked";
     case "upcoming": return "Upcoming";
+  }
+}
+
+function verificationLabel(status?: Batch["verificationStatus"]) {
+  switch (status) {
+    case "verified":
+      return "Proof verified";
+    case "needs_review":
+      return "Proof needs review";
+    case "rejected":
+      return "Proof rejected";
+    case "blocked":
+      return "Proof blocked";
+    default:
+      return "Proof pending";
   }
 }
 
@@ -143,6 +161,19 @@ export function BatchTimelineFull({ batches, timelineLocked }: BatchTimelineFull
                     )}
                     <span className={batch.priceImpact > 0 ? "text-green/90" : "text-muted"}>
                       +{batch.priceImpact}% on verified completion
+                    </span>
+                    <span
+                      className={`${
+                        batch.verificationStatus === "verified"
+                          ? "text-green"
+                          : batch.verificationStatus === "rejected" || batch.verificationStatus === "blocked"
+                            ? "text-red"
+                            : batch.verificationStatus === "needs_review"
+                              ? "text-amber-300"
+                              : "text-muted"
+                      }`}
+                    >
+                      {verificationLabel(batch.verificationStatus)}
                     </span>
                   </div>
                 </button>

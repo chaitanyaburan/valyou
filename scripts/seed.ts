@@ -32,6 +32,7 @@ import {
   ProjectModel,
   StoryModel,
   TradeModel,
+  TransparencyLedgerModel,
   UserProfileModel,
   WalletModel,
 } from "../src/models";
@@ -134,6 +135,7 @@ async function resetCollections() {
     ProjectFeedMetaModel.deleteMany({}),
     TradeModel.deleteMany({}),
     CandleModel.deleteMany({}),
+    TransparencyLedgerModel.deleteMany({}),
   ]);
 }
 

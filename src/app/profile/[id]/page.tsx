@@ -9,6 +9,8 @@ import ThemeToggle from "@/components/ThemeToggle";
 import type { Post, UserProfile } from "@/lib/social";
 import type { Creator, ProjectStock } from "@/lib/data";
 import { apiGetCreators, apiGetPosts, apiGetProfile, apiGetProjects } from "@/lib/api-client";
+import { useAuth } from "@/contexts/AuthContext";
+import CredibilityDashboard from "@/components/credibility/CredibilityDashboard";
 
 const container = {
   hidden: {},
@@ -20,7 +22,7 @@ const item = {
   show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" as const } },
 };
 
-const tabs = ["Posts", "Projects", "Endorsements"] as const;
+const tabs = ["Posts", "Projects", "Credibility", "Endorsements"] as const;
 type Tab = (typeof tabs)[number];
 
 function hashString(input: string): number {
@@ -108,9 +110,26 @@ function CompactPostCard({ post }: { post: Post }) {
   );
 }
 
+function antiCheatTone(status?: ProjectStock["batches"][number]["verificationStatus"]) {
+  if (status === "verified") return "text-green border-green/25 bg-green/10";
+  if (status === "needs_review") return "text-amber-300 border-amber-400/25 bg-amber-500/10";
+  if (status === "rejected" || status === "blocked") return "text-red border-red/25 bg-red/10";
+  return "text-muted border-card-border bg-card/40";
+}
+
+function antiCheatLabel(status?: ProjectStock["batches"][number]["verificationStatus"]) {
+  if (status === "verified") return "Verified";
+  if (status === "needs_review") return "Needs Review";
+  if (status === "rejected") return "Rejected";
+  if (status === "blocked") return "Blocked";
+  return "Pending";
+}
+
 export default function ProfilePage() {
   const params = useParams();
+  const { user } = useAuth();
   const id = params.id as string;
+  const isOwnProfile = Boolean(user && user.userId === id);
   const [activeTab, setActiveTab] = useState<Tab>("Posts");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [creator, setCreator] = useState<Creator | null>(null);
@@ -380,8 +399,8 @@ export default function ProfilePage() {
               {creatorProjects.length > 0 ? (
                 creatorProjects.map((p) => (
                   <motion.div key={p.id} variants={item}>
-                    <Link href={`/trade/${p.id}`} className="block">
-                      <div className="glass-card p-4 transition-transform hover:scale-[1.02]">
+                    <div className="glass-card p-4 transition-transform hover:scale-[1.02]">
+                      <Link href={`/trade/${p.id}`} className="block">
                         <div className="flex items-center gap-3">
                           <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${p.coverGradient}`}>
                             <svg className="h-5 w-5 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d={p.coverIcon} /></svg>
@@ -398,8 +417,36 @@ export default function ProfilePage() {
                           </span>
                           <span className="text-muted">{p.backers.toLocaleString()} backers</span>
                         </div>
-                      </div>
-                    </Link>
+                      </Link>
+                      {(() => {
+                        const activeBatch =
+                          p.batches.find((b) => b.status === "in_progress" || b.status === "overdue" || b.status === "blocked") ?? p.batches[0];
+                        const riskCount = activeBatch?.riskFlags?.length ?? 0;
+                        return (
+                          <div className="mt-3 rounded-lg border border-card-border/80 bg-background/40 p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Anti-cheat</p>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${antiCheatTone(activeBatch?.verificationStatus)}`}>
+                                {antiCheatLabel(activeBatch?.verificationStatus)}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-foreground/80">
+                              {activeBatch ? `Batch: ${activeBatch.title}` : "No timeline batch found"}
+                              {riskCount > 0 ? ` · ${riskCount} flag${riskCount > 1 ? "s" : ""}` : " · No active risk flags"}
+                            </p>
+                            <div className="mt-2 flex items-center justify-between">
+                              <span className="text-[10px] text-muted">Strict verification + immutable audit log</span>
+                              <Link
+                                href={`/trade/${p.id}#anti-cheat-proof`}
+                                className="text-[10px] font-semibold text-accent-light hover:underline"
+                              >
+                                {isOwnProfile ? "Manage" : "View"}
+                              </Link>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </motion.div>
                 ))
               ) : (
@@ -407,6 +454,18 @@ export default function ProfilePage() {
                   No projects yet.
                 </motion.p>
               )}
+            </motion.div>
+          )}
+
+          {activeTab === "Credibility" && (
+            <motion.div
+              key="credibility"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="mt-4"
+            >
+              <CredibilityDashboard profileId={id} isOwner={isOwnProfile} />
             </motion.div>
           )}
 

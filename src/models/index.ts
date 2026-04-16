@@ -15,7 +15,7 @@ const batchSchema = new Schema(
     description: { type: String, required: true },
     deadline: { type: String, required: true },
     completedAt: { type: String },
-    status: { type: String, enum: ["completed", "in_progress", "overdue", "upcoming"], required: true },
+    status: { type: String, enum: ["completed", "in_progress", "overdue", "upcoming", "blocked"], required: true },
     priceImpact: { type: Number, required: true },
     deliverablesDone: [{ type: String }],
     workInProgress: [{ type: String }],
@@ -23,6 +23,16 @@ const batchSchema = new Schema(
     transparencyNote: { type: String },
     transparencyLinks: [batchLinkSchema],
     lastInvestorUpdate: { type: String },
+    proofPackageId: { type: String },
+    verificationStatus: {
+      type: String,
+      enum: ["unverified", "verified", "needs_review", "rejected", "blocked"],
+      default: "unverified",
+    },
+    verificationScore: { type: Number },
+    riskFlags: [{ type: String }],
+    submittedAt: { type: Date },
+    verifiedAt: { type: Date },
   },
   { _id: false },
 );
@@ -87,11 +97,26 @@ const projectSchema = new Schema(
     milestoneProgress: { type: Number, required: true },
     filterCategory: { type: String, enum: ["trending", "top", "new"], required: true },
     timelineLocked: { type: Boolean, required: true },
+    /** Once true, batches and timeline lock cannot change (enforced in pre-save). */
+    publicationLocked: { type: Boolean, default: false },
+    publishedAt: { type: Date },
     batches: [batchSchema],
     dispute: disputeSchema,
   },
   { timestamps: true, versionKey: false },
 );
+
+projectSchema.pre("save", function projectPublicationImmutability() {
+  if (this.isNew) return;
+  if (this.publicationLocked) {
+    if (this.isModified("batches")) {
+      throw new Error("Published timeline batches are immutable.");
+    }
+    if (this.isModified("timelineLocked")) {
+      throw new Error("Timeline lock is immutable after publication.");
+    }
+  }
+});
 
 const holdingSchema = new Schema(
   {
@@ -171,6 +196,13 @@ const profileSchema = new Schema(
     githubRepos: { type: Number, required: true },
     githubStreak: { type: Number, required: true },
     linkedinConnections: { type: Number, required: true },
+    /** Developer credibility (credibility-platform) — optional */
+    credibilityGithub: { type: String, trim: true },
+    credibilityLeetcode: { type: String, trim: true },
+    credibilityCodeforces: { type: String, trim: true },
+    walletAddress: { type: String, trim: true, lowercase: true },
+    credibilityResult: { type: Schema.Types.Mixed },
+    credibilityAt: { type: Date },
   },
   { timestamps: true, versionKey: false },
 );
@@ -260,6 +292,67 @@ const projectFeedMetaSchema = new Schema(
   { timestamps: true, versionKey: false },
 );
 
+/** Append-only publication / transparency audit trail (never updated in app code). */
+const transparencyLedgerSchema = new Schema(
+  {
+    projectId: { type: String, required: true, index: true },
+    seq: { type: Number, required: true },
+    kind: {
+      type: String,
+      enum: ["published", "proof_submitted", "proof_verified", "proof_rejected", "penalty_applied", "project_suspended"],
+      required: true,
+    },
+    actorUserId: { type: String, required: true },
+    headline: { type: String, required: true },
+    snapshot: { type: Schema.Types.Mixed, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+transparencyLedgerSchema.index({ projectId: 1, seq: 1 }, { unique: true });
+
+const batchProofEvidenceSchema = new Schema(
+  {
+    type: { type: String, enum: ["commit", "deployment", "task_board", "video", "wallet_attestation"], required: true },
+    label: { type: String, required: true },
+    url: { type: String, required: true },
+    metadata: { type: Schema.Types.Mixed },
+  },
+  { _id: false },
+);
+
+const batchProofVerifierSchema = new Schema(
+  {
+    verificationStatus: {
+      type: String,
+      enum: ["verified", "needs_review", "rejected", "blocked"],
+      required: true,
+    },
+    verificationScore: { type: Number, required: true },
+    riskFlags: [{ type: String }],
+    checks: [{ type: String }],
+  },
+  { _id: false },
+);
+
+const batchProofSubmissionSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    projectId: { type: String, required: true, index: true },
+    batchId: { type: String, required: true, index: true },
+    submitterUserId: { type: String, required: true, index: true },
+    walletAddress: { type: String, required: true, lowercase: true, trim: true },
+    signature: { type: String, required: true, trim: true },
+    payload: { type: String, required: true },
+    evidence: [batchProofEvidenceSchema],
+    artifactHashes: [{ type: String, required: true }],
+    verifierResult: { type: batchProofVerifierSchema, required: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+batchProofSubmissionSchema.index({ projectId: 1, batchId: 1, createdAt: -1 });
+
 const tradeSchema = new Schema(
   {
     projectId: { type: String, required: true, index: true },
@@ -289,6 +382,16 @@ const candleSchema = new Schema(
 
 candleSchema.index({ projectId: 1, time: 1 }, { unique: true });
 
+const authCredentialSchema = new Schema(
+  {
+    userId: { type: String, required: true, unique: true, index: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true, index: true },
+    passwordHash: { type: String, required: true },
+    displayName: { type: String, required: true, trim: true },
+  },
+  { timestamps: true, versionKey: false },
+);
+
 export const CreatorModel = mongoose.models.Creator || mongoose.model("Creator", creatorSchema);
 export const ProjectModel = mongoose.models.Project || mongoose.model("Project", projectSchema);
 export const HoldingModel = mongoose.models.Holding || mongoose.model("Holding", holdingSchema);
@@ -301,8 +404,17 @@ export const StoryModel = mongoose.models.Story || mongoose.model("Story", story
 export const ConversationModel = mongoose.models.Conversation || mongoose.model("Conversation", conversationSchema);
 export const NotificationModel = mongoose.models.Notification || mongoose.model("Notification", notificationSchema);
 export const ProjectFeedMetaModel = mongoose.models.ProjectFeedMeta || mongoose.model("ProjectFeedMeta", projectFeedMetaSchema);
+export const TransparencyLedgerModel =
+  mongoose.models.TransparencyLedger || mongoose.model("TransparencyLedger", transparencyLedgerSchema);
+export const BatchProofSubmissionModel =
+  mongoose.models.BatchProofSubmission || mongoose.model("BatchProofSubmission", batchProofSubmissionSchema);
 export const TradeModel = mongoose.models.Trade || mongoose.model("Trade", tradeSchema);
 export const CandleModel = mongoose.models.Candle || mongoose.model("Candle", candleSchema);
+export const AuthCredentialModel =
+  mongoose.models.AuthCredential || mongoose.model("AuthCredential", authCredentialSchema);
 
 export type ProjectDoc = InferSchemaType<typeof projectSchema>;
+export type TransparencyLedgerDoc = InferSchemaType<typeof transparencyLedgerSchema>;
+export type BatchProofSubmissionDoc = InferSchemaType<typeof batchProofSubmissionSchema>;
+export type AuthCredentialDoc = InferSchemaType<typeof authCredentialSchema>;
 

@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import Ticker from "@/components/Ticker";
 import BottomNav from "@/components/BottomNav";
 import ThemeScript from "@/components/ThemeScript";
-import { AppWalletProviders } from "@/components/AppWalletProviders";
+import { AuthProvider } from "@/contexts/AuthContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -41,7 +41,7 @@ export default function RootLayout({
     >
       <body className="min-h-screen bg-background text-foreground transition-colors duration-200">
         <ThemeScript />
-        <AppWalletProviders>
+        <AuthProvider>
           <Navbar />
           <div className="pt-14 sm:pt-16">
             <Ticker />
@@ -50,7 +50,7 @@ export default function RootLayout({
             {children}
           </main>
           <BottomNav />
-        </AppWalletProviders>
+        </AuthProvider>
       </body>
     </html>
   );

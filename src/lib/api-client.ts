@@ -34,8 +34,98 @@ export type WalletData = {
   pnlPercent: number;
 };
 
-export function apiGetProjects() {
-  return getJson<ProjectStock[]>("/api/projects");
+type ProjectsResponse = ProjectStock[] | { projects: ProjectStock[] };
+
+export async function apiGetProjects() {
+  const data = await getJson<ProjectsResponse>("/api/projects");
+  if (Array.isArray(data)) return data;
+  return Array.isArray(data.projects) ? data.projects : [];
+}
+
+export type TransparencyLedgerEntry = {
+  projectId: string;
+  seq: number;
+  kind: "published" | "proof_submitted" | "proof_verified" | "proof_rejected" | "penalty_applied" | "project_suspended";
+  actorUserId: string;
+  headline: string;
+  snapshot: Record<string, unknown>;
+  createdAt?: string;
+};
+
+export type ProjectTransparencyResponse = {
+  projectId: string;
+  title: string;
+  publicationLocked: boolean;
+  publishedAt: string | null;
+  timelineLocked: boolean;
+  ledger: TransparencyLedgerEntry[];
+};
+
+export async function apiPostProject(body: Record<string, unknown>) {
+  const res = await fetch("/api/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as { error?: string; id?: string; published?: boolean };
+  if (!res.ok) throw new Error(data.error ?? "Could not publish project.");
+  return data as { id: string; published: boolean };
+}
+
+export function apiGetProjectTransparency(id: string) {
+  return getJson<ProjectTransparencyResponse>(`/api/projects/${id}/transparency`);
+}
+
+export type ProofEvidenceInput = {
+  type: "commit" | "deployment" | "task_board" | "video" | "wallet_attestation";
+  label: string;
+  url: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type ProofSubmission = {
+  id: string;
+  projectId: string;
+  batchId: string;
+  submitterUserId: string;
+  walletAddress: string;
+  signature: string;
+  payload: string;
+  evidence: ProofEvidenceInput[];
+  artifactHashes: string[];
+  verifierResult: {
+    verificationStatus: "verified" | "needs_review" | "rejected" | "blocked";
+    verificationScore: number;
+    riskFlags: string[];
+    checks: string[];
+  };
+  createdAt: string;
+};
+
+export function apiGetBatchProofs(projectId: string, batchId: string) {
+  return getJson<{ submissions: ProofSubmission[] }>(`/api/projects/${projectId}/batches/${batchId}/proofs`);
+}
+
+export async function apiSubmitBatchProof(
+  projectId: string,
+  batchId: string,
+  body: {
+    walletAddress: string;
+    signature: string;
+    payload: string;
+    evidence: ProofEvidenceInput[];
+  },
+) {
+  const res = await fetch(`/api/projects/${projectId}/batches/${batchId}/proofs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Proof submission failed.");
+  return data;
 }
 
 export function apiGetCreators() {

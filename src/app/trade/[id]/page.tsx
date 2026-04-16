@@ -16,7 +16,17 @@ import {
 } from "recharts";
 import Link from "next/link";
 import type { ProjectStats24h, ProjectStock, RecentTrade, OrderBookEntry } from "@/lib/data";
-import { apiGetProject, apiGetProjectCandles, apiGetProjectOrderBook, apiGetProjects, apiGetProjectTrades } from "@/lib/api-client";
+import {
+  apiGetBatchProofs,
+  apiGetProject,
+  apiGetProjectCandles,
+  apiGetProjectOrderBook,
+  apiGetProjects,
+  apiGetProjectTrades,
+  apiSubmitBatchProof,
+  type ProofEvidenceInput,
+  type ProofSubmission,
+} from "@/lib/api-client";
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
 import SparklineChart from "@/components/SparklineChart";
@@ -87,6 +97,20 @@ export default function TradePage() {
   const [activeInfoTab, setActiveInfoTab] = useState<"orderbook" | "trades">("orderbook");
   const [chartReady, setChartReady] = useState(false);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
+  const [proofWallet, setProofWallet] = useState("");
+  const [proofPayload, setProofPayload] = useState("");
+  const [proofSignature, setProofSignature] = useState("");
+  const [proofUrls, setProofUrls] = useState<Record<ProofEvidenceInput["type"], string>>({
+    commit: "",
+    deployment: "",
+    task_board: "",
+    video: "",
+    wallet_attestation: "",
+  });
+  const [proofResult, setProofResult] = useState<{ status: string; score: number; flags: string[] } | null>(null);
+  const [proofHistory, setProofHistory] = useState<ProofSubmission[]>([]);
+  const [proofError, setProofError] = useState<string | null>(null);
+  const [submittingProof, setSubmittingProof] = useState(false);
   useEffect(() => setChartReady(true), []);
 
   useEffect(() => {
@@ -128,9 +152,76 @@ export default function TradePage() {
       });
   }, [id]);
 
+  const activeBatch = useMemo(
+    () => project?.batches.find((b) => b.status === "in_progress" || b.status === "overdue" || b.status === "blocked") ?? null,
+    [project],
+  );
+
+  useEffect(() => {
+    if (!project?.id || !activeBatch?.id) {
+      setProofHistory([]);
+      return;
+    }
+    apiGetBatchProofs(project.id, activeBatch.id)
+      .then((out) => setProofHistory(out.submissions))
+      .catch(() => setProofHistory([]));
+  }, [project?.id, activeBatch?.id]);
+
   const relatedProjects = useMemo(
     () => allProjects.filter((p) => p.id !== id).slice(0, 4),
     [allProjects, id]
+  );
+
+  const handleOrder = useCallback(() => {
+    if (!amount || parseFloat(amount) <= 0) return;
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 2500);
+    setAmount("");
+    setSliderValue(0);
+  }, [amount]);
+
+  const handleSubmitProof = useCallback(async () => {
+    if (!project || !activeBatch) return;
+    setSubmittingProof(true);
+    setProofError(null);
+    setProofResult(null);
+    const evidence: ProofEvidenceInput[] = [
+      { type: "commit", label: "Commit / PR", url: proofUrls.commit },
+      { type: "deployment", label: "Deployment", url: proofUrls.deployment },
+      { type: "task_board", label: "Task board", url: proofUrls.task_board },
+      { type: "video", label: "Demo video", url: proofUrls.video },
+      { type: "wallet_attestation", label: "Attestation proof", url: proofUrls.wallet_attestation },
+    ];
+    try {
+      const out = await apiSubmitBatchProof(project.id, activeBatch.id, {
+        walletAddress: proofWallet,
+        payload: proofPayload,
+        signature: proofSignature,
+        evidence,
+      });
+      setProofResult({
+        status: String((out as { verificationStatus?: string }).verificationStatus ?? "unknown"),
+        score: Number((out as { verificationScore?: number }).verificationScore ?? 0),
+        flags: Array.isArray((out as { riskFlags?: string[] }).riskFlags) ? (out as { riskFlags: string[] }).riskFlags : [],
+      });
+      const refreshedProject = await apiGetProject(project.id);
+      setProject(refreshedProject);
+      const refreshed = await apiGetBatchProofs(project.id, activeBatch.id);
+      setProofHistory(refreshed.submissions);
+    } catch (e) {
+      setProofError(e instanceof Error ? e.message : "Proof submission failed.");
+    } finally {
+      setSubmittingProof(false);
+    }
+  }, [activeBatch, project, proofPayload, proofSignature, proofUrls, proofWallet]);
+
+  const handleSlider = useCallback(
+    (pct: number) => {
+      setSliderValue(pct);
+      const walletBalance = 10000;
+      setAmount(String(Math.floor((pct / 100) * walletBalance)));
+    },
+    []
   );
 
   if (!project) {
@@ -188,23 +279,6 @@ export default function TradePage() {
     endorsements: 0,
     backers: `${project.backers}`,
   };
-
-  const handleOrder = useCallback(() => {
-    if (!amount || parseFloat(amount) <= 0) return;
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 2500);
-    setAmount("");
-    setSliderValue(0);
-  }, [amount]);
-
-  const handleSlider = useCallback(
-    (pct: number) => {
-      setSliderValue(pct);
-      const walletBalance = 10000;
-      setAmount(String(Math.floor((pct / 100) * walletBalance)));
-    },
-    []
-  );
 
   return (
     <motion.div
@@ -274,7 +348,7 @@ export default function TradePage() {
 
       {/* ═══════════ MAIN GRID ═══════════ */}
       <div className="grid gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
+        <div className="min-w-0 space-y-5 lg:col-span-2">
           {/* PRICE CHART */}
           <motion.div className="glass-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
             <div className="flex items-center justify-between border-b border-card-border px-6 py-4">
@@ -301,9 +375,9 @@ export default function TradePage() {
               </div>
             </div>
 
-            <div className="px-6 pt-4 pb-2">
+            <div className="min-w-0 px-6 pt-4 pb-2">
               {chartReady ? (
-                <ResponsiveContainer width="100%" height={380}>
+                <ResponsiveContainer width="100%" height={380} minWidth={0} minHeight={1}>
                   <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
@@ -324,10 +398,10 @@ export default function TradePage() {
               )}
             </div>
 
-            <div className="px-6 pb-4">
+            <div className="min-w-0 px-6 pb-4">
               <p className="mb-1 text-[10px] uppercase tracking-wider text-muted">Volume</p>
               {chartReady ? (
-                <ResponsiveContainer width="100%" height={50}>
+                <ResponsiveContainer width="100%" height={50} minWidth={0} minHeight={1}>
                   <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
                     <Bar dataKey="volume" fill={isPositive ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"} stroke={isPositive ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"} strokeWidth={1} radius={[2, 2, 0, 0]} animationDuration={600} />
                   </BarChart>
@@ -497,7 +571,61 @@ export default function TradePage() {
           {/* BATCH TIMELINE */}
           {project.batches.length > 0 && (
             <motion.div className="glass-card p-5" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 }}>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] text-muted">
+                  {project.publicationLocked ? "Timeline locked at publication — batches cannot be edited." : "Investor-facing milestone timeline."}
+                </p>
+                <Link
+                  href={`/trade/${id}/transparency`}
+                  className="shrink-0 text-xs font-semibold text-accent-light hover:underline"
+                >
+                  Transparency log →
+                </Link>
+              </div>
               <BatchTimelineFull batches={project.batches} timelineLocked={project.timelineLocked} />
+
+              {activeBatch && (
+                <div id="anti-cheat-proof" className="mt-4 rounded-xl border border-card-border/80 bg-card/30 p-3.5 space-y-2.5">
+                  <p className="text-xs font-semibold text-foreground">
+                    Strict anti-cheat proof upload · {activeBatch.title}
+                  </p>
+                  <p className="text-[11px] text-muted">
+                    Required: commit, deployment, task-board, demo video, wallet attestation.
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input value={proofWallet} onChange={(e) => setProofWallet(e.target.value)} placeholder="Wallet address" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs" />
+                    <input value={proofSignature} onChange={(e) => setProofSignature(e.target.value)} placeholder="Signature hash" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs" />
+                    <input value={proofUrls.commit} onChange={(e) => setProofUrls((p) => ({ ...p, commit: e.target.value }))} placeholder="GitHub commit/PR URL" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs sm:col-span-2" />
+                    <input value={proofUrls.deployment} onChange={(e) => setProofUrls((p) => ({ ...p, deployment: e.target.value }))} placeholder="Deployment/build URL" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs sm:col-span-2" />
+                    <input value={proofUrls.task_board} onChange={(e) => setProofUrls((p) => ({ ...p, task_board: e.target.value }))} placeholder="Task board URL" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs sm:col-span-2" />
+                    <input value={proofUrls.video} onChange={(e) => setProofUrls((p) => ({ ...p, video: e.target.value }))} placeholder="Demo video URL" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs sm:col-span-2" />
+                    <input value={proofUrls.wallet_attestation} onChange={(e) => setProofUrls((p) => ({ ...p, wallet_attestation: e.target.value }))} placeholder="Wallet attestation URL" className="rounded-lg border border-card-border bg-card px-3 py-2 text-xs sm:col-span-2" />
+                  </div>
+                  <textarea value={proofPayload} onChange={(e) => setProofPayload(e.target.value)} placeholder="Canonical payload JSON string" rows={3} className="w-full rounded-lg border border-card-border bg-card px-3 py-2 text-xs" />
+                  <button onClick={handleSubmitProof} disabled={submittingProof} className="rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs font-semibold text-accent-light disabled:opacity-50">
+                    {submittingProof ? "Verifying..." : "Submit strict proof"}
+                  </button>
+                  {proofError && <p className="text-[11px] text-red">{proofError}</p>}
+                  {proofResult && (
+                    <p className="text-[11px] text-foreground/85">
+                      Result: <span className="font-semibold">{proofResult.status}</span> · score {proofResult.score}
+                      {proofResult.flags.length > 0 ? ` · flags: ${proofResult.flags.join(", ")}` : ""}
+                    </p>
+                  )}
+                  {proofHistory.length > 0 && (
+                    <div className="rounded-lg border border-card-border/60 bg-background/50 p-2">
+                      <p className="text-[10px] uppercase tracking-wider text-muted mb-1">Recent proofs</p>
+                      <div className="space-y-1">
+                        {proofHistory.slice(0, 3).map((item) => (
+                          <p key={item.id} className="text-[11px] text-foreground/80">
+                            {new Date(item.createdAt).toLocaleDateString("en-IN")} · {item.verifierResult.verificationStatus} · score {item.verifierResult.verificationScore}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -625,6 +753,7 @@ export default function TradePage() {
         onClose={() => setShowDisputeModal(false)}
         projectTitle={project.title}
         existingDispute={project.dispute}
+        antiCheatFlags={activeBatch?.riskFlags ?? []}
       />
     </motion.div>
   );

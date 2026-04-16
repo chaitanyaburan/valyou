@@ -9,9 +9,10 @@ interface DisputeModalProps {
   onClose: () => void;
   projectTitle: string;
   existingDispute?: Dispute;
+  antiCheatFlags?: string[];
 }
 
-export default function DisputeModal({ isOpen, onClose, projectTitle, existingDispute }: DisputeModalProps) {
+export default function DisputeModal({ isOpen, onClose, projectTitle, existingDispute, antiCheatFlags = [] }: DisputeModalProps) {
   const [reason, setReason] = useState("");
   const [proofLinks, setProofLinks] = useState<string[]>([""]);
   const [submitted, setSubmitted] = useState(false);
@@ -70,6 +71,12 @@ export default function DisputeModal({ isOpen, onClose, projectTitle, existingDi
               <>
                 {/* Existing dispute view */}
                 <div className="space-y-3">
+                  {antiCheatFlags.length > 0 && (
+                    <div className="p-3 rounded-lg bg-red/10 border border-red/30">
+                      <p className="text-xs font-medium text-red mb-1">Anti-cheat flags</p>
+                      <p className="text-[11px] text-foreground/80">{antiCheatFlags.join(", ")}</p>
+                    </div>
+                  )}
                   <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20">
                     <p className="text-xs font-medium text-amber-400 mb-1">Reason</p>
                     <p className="text-[11px] text-muted">{existingDispute.reason}</p>

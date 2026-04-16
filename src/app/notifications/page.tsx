@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { apiGetNotifications } from "@/lib/api-client";
 import type { Notification } from "@/lib/social";
+import { useWalletUserId } from "@/contexts/AuthContext";
 
 const filters = [
   { label: "All", value: "all" },
@@ -162,12 +163,13 @@ function NotificationGlyph({ n }: { n: Notification }) {
 }
 
 export default function NotificationsPage() {
+  const walletUserId = useWalletUserId();
   const [items, setItems] = useState<Notification[]>([]);
   const [filter, setFilter] = useState<FilterValue>("all");
 
   useEffect(() => {
-    apiGetNotifications("demo").then(setItems).catch(() => setItems([]));
-  }, []);
+    apiGetNotifications(walletUserId).then(setItems).catch(() => setItems([]));
+  }, [walletUserId]);
 
   const list = useMemo(() => filterByType(items, filter), [items, filter]);
 
