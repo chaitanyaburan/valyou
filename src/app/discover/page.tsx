@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   motion,
@@ -10,7 +10,7 @@ import {
 } from "framer-motion";
 import { computeProjectHealth, getDisputeStatus } from "@/lib/data";
 import type { ProjectStock } from "@/lib/data";
-import { apiGetProjects } from "@/lib/api-client";
+import { useMergedProjects } from "@/hooks/useMergedProjects";
 import Avatar from "@/components/Avatar";
 import SparklineChart from "@/components/SparklineChart";
 import { BatchTimelineCompact } from "@/components/BatchTimeline";
@@ -58,6 +58,9 @@ const categoryToInterest: Record<string, string> = {
   "AI / HR Tech": "ai",
   "DeFi / Blockchain": "web3",
   "Infrastructure / DB": "devops",
+  "FinTech": "saas",
+  "HealthTech": "saas",
+  "Climate / Energy": "web3",
 };
 
 function computeMatchScore(project: ProjectStock, prefs: Preferences): number {
@@ -361,7 +364,7 @@ function SwipeCard({
               {project.changePercent >= 0 ? "+" : ""}{project.changePercent.toFixed(1)}% today
             </span>
           </div>
-          <div className="flex-1 ml-2">
+          <div className="ml-2 min-h-[40px] min-w-0 flex-1 self-stretch">
             <SparklineChart data={project.sparkline} positive={project.change >= 0} />
           </div>
         </div>
@@ -424,20 +427,16 @@ function SwipeCard({
 // ═══════════════════════════════════════════
 
 export default function DiscoverPage() {
-  const [projects, setProjects] = useState<ProjectStock[]>([]);
+  const projects = useMergedProjects();
   const [prefs, setPrefs] = useState<Preferences | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [invested, setInvested] = useState<string[]>([]);
   const [skipped, setSkipped] = useState<string[]>([]);
 
-  useEffect(() => {
-    apiGetProjects().then(setProjects).catch(() => setProjects([]));
-  }, []);
-
   const sortedProjects = useMemo(() => {
     if (!prefs) return projects;
     return [...projects].sort((a, b) => computeMatchScore(b, prefs) - computeMatchScore(a, prefs));
-  }, [prefs]);
+  }, [prefs, projects]);
 
   const currentProject = sortedProjects[currentIndex % sortedProjects.length];
   const matchScore = prefs && currentProject ? computeMatchScore(currentProject, prefs) : 50;
@@ -451,6 +450,48 @@ export default function DiscoverPage() {
 
   if (!prefs) {
     return <PreferenceWizard onComplete={setPrefs} />;
+  }
+
+  if (sortedProjects.length === 0) {
+    return (
+      <section className="py-4 sm:py-8">
+        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Discover</h1>
+          <p className="text-sm text-muted mt-0.5">No projects to show yet</p>
+        </motion.div>
+        <div className="glass-card mx-auto max-w-md space-y-4 p-6 text-center">
+          <p className="text-sm text-muted">
+            Listings from the market (including any you posted from this browser) will appear here once they are available.
+          </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+            <Link
+              href="/market"
+              className="inline-flex justify-center rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition hover:bg-accent/90"
+            >
+              Browse market
+            </Link>
+            <Link
+              href="/post-project"
+              className="inline-flex justify-center rounded-lg border border-card-border px-4 py-2 text-sm font-medium text-muted transition hover:border-accent/30 hover:text-foreground"
+            >
+              Post a project
+            </Link>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPrefs(null);
+              setCurrentIndex(0);
+              setInvested([]);
+              setSkipped([]);
+            }}
+            className="text-xs text-muted underline underline-offset-2 hover:text-foreground"
+          >
+            Change preferences
+          </button>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -499,11 +540,17 @@ export default function DiscoverPage() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
           </motion.button>
 
-          <Link href={`/trade/${currentProject?.id || ""}`}>
-            <motion.div whileTap={{ scale: 0.9 }} className="flex h-10 w-10 items-center justify-center rounded-xl border border-accent/20 bg-accent/[0.06] text-accent-light transition hover:border-accent/40 hover:bg-accent/10">
+          {currentProject ? (
+            <Link href={`/trade/${currentProject.id}`} aria-label="Open project trade page">
+              <motion.div whileTap={{ scale: 0.9 }} className="flex h-10 w-10 items-center justify-center rounded-xl border border-accent/20 bg-accent/[0.06] text-accent-light transition hover:border-accent/40 hover:bg-accent/10">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
+              </motion.div>
+            </Link>
+          ) : (
+            <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-card-border/50 bg-card/20 text-muted/40" aria-hidden>
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" /></svg>
-            </motion.div>
-          </Link>
+            </span>
+          )}
 
           <motion.button whileTap={{ scale: 0.85 }} onClick={() => handleSwipe("right")} className="flex h-14 w-14 items-center justify-center rounded-2xl border border-gain/20 bg-gain/[0.06] text-gain transition hover:border-gain/40 hover:bg-gain/10 shadow-lg shadow-gain/5">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>

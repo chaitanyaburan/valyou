@@ -128,6 +128,7 @@ const holdingSchema = new Schema(
     invested: { type: Number, required: true },
     currentValue: { type: Number, required: true },
     quantity: { type: Number, required: true },
+    reservedQuantity: { type: Number, required: true, default: 0 },
     avgPrice: { type: Number, required: true },
     currentPrice: { type: Number, required: true },
   },
@@ -147,6 +148,8 @@ const fundingProjectSchema = new Schema(
     reward: { type: String, required: true },
     daysLeft: { type: Number, required: true },
     image: { type: String, required: true },
+    /** Funding hub lists startup campaigns only; use "other" for non-startup rows (hidden from GET /api/funding). */
+    segment: { type: String, enum: ["startup", "other"], default: "startup" },
   },
   { timestamps: true, versionKey: false },
 );
@@ -169,6 +172,8 @@ const walletSchema = new Schema(
   {
     userId: { type: String, required: true, unique: true, index: true },
     balance: { type: Number, required: true },
+    availableBalance: { type: Number, required: true, default: 0 },
+    reservedBalance: { type: Number, required: true, default: 0 },
     invested: { type: Number, required: true },
     currentValue: { type: Number, required: true },
     pnl: { type: Number, required: true },
@@ -353,19 +358,46 @@ const batchProofSubmissionSchema = new Schema(
 
 batchProofSubmissionSchema.index({ projectId: 1, batchId: 1, createdAt: -1 });
 
+const orderSchema = new Schema(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    projectId: { type: String, required: true, index: true },
+    userId: { type: String, required: true, index: true },
+    side: { type: String, enum: ["buy", "sell"], required: true },
+    type: { type: String, enum: ["market", "limit"], required: true },
+    limitPrice: { type: Number },
+    quantity: { type: Number, required: true },
+    remainingQuantity: { type: Number, required: true },
+    status: { type: String, enum: ["open", "partially_filled", "filled", "cancelled", "rejected"], required: true },
+    reservedAlgo: { type: Number, required: true, default: 0 },
+    reservedShares: { type: Number, required: true, default: 0 },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+orderSchema.index({ projectId: 1, side: 1, status: 1, limitPrice: 1, createdAt: 1 });
+orderSchema.index({ userId: 1, status: 1, createdAt: -1 });
+
 const tradeSchema = new Schema(
   {
+    id: { type: String, required: true, unique: true, index: true },
     projectId: { type: String, required: true, index: true },
     type: { type: String, enum: ["buy", "sell"], required: true },
     price: { type: Number, required: true },
     quantity: { type: Number, required: true },
     time: { type: String, required: true },
     user: { type: String, required: true },
+    buyerUserId: { type: String },
+    sellerUserId: { type: String },
+    buyOrderId: { type: String },
+    sellOrderId: { type: String },
   },
   { timestamps: true, versionKey: false },
 );
 
 tradeSchema.index({ projectId: 1, createdAt: -1 });
+tradeSchema.index({ buyerUserId: 1, createdAt: -1 });
+tradeSchema.index({ sellerUserId: 1, createdAt: -1 });
 
 const candleSchema = new Schema(
   {
@@ -392,6 +424,22 @@ const authCredentialSchema = new Schema(
   { timestamps: true, versionKey: false },
 );
 
+/** Razorpay Orders API — server stores expected ALGO credit until payment is verified. */
+const razorpayWalletOrderSchema = new Schema(
+  {
+    razorpayOrderId: { type: String, required: true, unique: true, index: true },
+    userId: { type: String, required: true, index: true },
+    amountPaise: { type: Number, required: true },
+    amountInr: { type: Number, required: true },
+    algoCredit: { type: Number, required: true },
+    status: { type: String, enum: ["created", "paid", "failed"], required: true, default: "created" },
+    razorpayPaymentId: { type: String },
+  },
+  { timestamps: true, versionKey: false },
+);
+
+razorpayWalletOrderSchema.index({ userId: 1, status: 1, createdAt: -1 });
+
 export const CreatorModel = mongoose.models.Creator || mongoose.model("Creator", creatorSchema);
 export const ProjectModel = mongoose.models.Project || mongoose.model("Project", projectSchema);
 export const HoldingModel = mongoose.models.Holding || mongoose.model("Holding", holdingSchema);
@@ -408,13 +456,18 @@ export const TransparencyLedgerModel =
   mongoose.models.TransparencyLedger || mongoose.model("TransparencyLedger", transparencyLedgerSchema);
 export const BatchProofSubmissionModel =
   mongoose.models.BatchProofSubmission || mongoose.model("BatchProofSubmission", batchProofSubmissionSchema);
+export const OrderModel = mongoose.models.Order || mongoose.model("Order", orderSchema);
 export const TradeModel = mongoose.models.Trade || mongoose.model("Trade", tradeSchema);
 export const CandleModel = mongoose.models.Candle || mongoose.model("Candle", candleSchema);
 export const AuthCredentialModel =
   mongoose.models.AuthCredential || mongoose.model("AuthCredential", authCredentialSchema);
+export const RazorpayWalletOrderModel =
+  mongoose.models.RazorpayWalletOrder || mongoose.model("RazorpayWalletOrder", razorpayWalletOrderSchema);
 
 export type ProjectDoc = InferSchemaType<typeof projectSchema>;
 export type TransparencyLedgerDoc = InferSchemaType<typeof transparencyLedgerSchema>;
 export type BatchProofSubmissionDoc = InferSchemaType<typeof batchProofSubmissionSchema>;
+export type OrderDoc = InferSchemaType<typeof orderSchema>;
 export type AuthCredentialDoc = InferSchemaType<typeof authCredentialSchema>;
+export type RazorpayWalletOrderDoc = InferSchemaType<typeof razorpayWalletOrderSchema>;
 

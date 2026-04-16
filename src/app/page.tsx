@@ -1,16 +1,19 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import Avatar from "@/components/Avatar";
+import type { AuthUser } from "@/contexts/AuthContext";
+import { useAuth, useWalletUserId } from "@/contexts/AuthContext";
+import { apiGetWallet, type WalletData } from "@/lib/api-client";
+import { APP_WALLET_REFRESH_EVENT, emitAppWalletRefresh } from "@/lib/app-wallet-events";
+import { appendPostComment, getPostComments, isPostLiked, setPostLiked, type FeedComment } from "@/lib/feed-engagement";
 import { projectFeed, stories, type ProjectPost, type TradeRecord, type Story } from "@/lib/social";
 import { projects, wallet } from "@/lib/data";
-import { SOL_TO_INR } from "@/lib/solana";
 
-const fmt = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+const fmt = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 4 });
 const fmtShort = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
-const fmtInr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
 
 const container = {
   hidden: {},
@@ -39,8 +42,26 @@ function TierBadge({ tier }: { tier: string }) {
   );
 }
 
-function formatSolInr(solAmount: number): string {
-  return `${fmtShort.format(solAmount)} SOL · ${fmtInr.format(solAmount * SOL_TO_INR)}`;
+function formatAlgo(algoAmount: number): string {
+  return `${fmtShort.format(algoAmount)} ALGO`;
+}
+
+function viewerName(user: AuthUser | null): string {
+  return user?.displayName?.trim() || "Guest";
+}
+
+function viewerHandle(user: AuthUser | null): string {
+  if (!user) return "@guest";
+  if (user.email.includes("@")) return `@${user.email.split("@")[0]!}`;
+  return `@${user.userId}`;
+}
+
+function viewerInitials(user: AuthUser | null): string {
+  if (!user) return "GU";
+  const name = user.displayName.trim();
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase() || "GU";
 }
 
 function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) {
@@ -91,15 +112,77 @@ function StoryViewer({ story, onClose }: { story: Story; onClose: () => void }) 
 function ProjectCard({
   project,
   onInvestClick,
+  showToast,
 }: {
   project: ProjectPost;
   onInvestClick: (project: ProjectPost) => void;
+  showToast: (msg: string) => void;
 }) {
+  const { user } = useAuth();
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(project.likes);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [extraComments, setExtraComments] = useState<FeedComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
   const fundedPct = Math.round((project.fundingRaised / project.fundingGoal) * 100);
+  const totalComments = project.comments + extraComments.length;
 
-  const toggleLike = () => { setLiked((prev) => !prev); setLikeCount((prev) => (liked ? prev - 1 : prev + 1)); };
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const persistedLiked = isPostLiked(project.id);
+      setLiked(persistedLiked);
+      setLikeCount(project.likes + (persistedLiked ? 1 : 0));
+      setExtraComments(getPostComments(project.id));
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [project.id, project.likes]);
+
+  const toggleLike = useCallback(() => {
+    setLiked((prev) => {
+      const next = !prev;
+      setLikeCount(project.likes + (next ? 1 : 0));
+      setPostLiked(project.id, next);
+      return next;
+    });
+  }, [project.id, project.likes]);
+
+  const postComment = useCallback(() => {
+    const text = commentDraft.trim();
+    if (!text) {
+      showToast("Write a comment first");
+      return;
+    }
+    const c: FeedComment = {
+      id: `fc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      author: user?.displayName?.trim() || "Guest",
+      text,
+      createdAt: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+    };
+    appendPostComment(project.id, c);
+    setExtraComments((prev) => [...prev, c]);
+    setCommentDraft("");
+    showToast("Comment posted");
+  }, [commentDraft, project.id, showToast, user?.displayName]);
+
+  const onShare = useCallback(async () => {
+    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/trade/${project.id}`;
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        await navigator.share({ title: project.title, text: project.tagline, url });
+        showToast("Shared");
+        return;
+      }
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        showToast("Link copied to clipboard");
+        return;
+      }
+      showToast(url);
+    } catch (e) {
+      const name = e instanceof Error ? e.name : "";
+      if (name !== "AbortError") showToast("Could not share — try copying the trade link");
+    }
+  }, [project.id, project.tagline, project.title, showToast]);
 
   return (
     <motion.div variants={item} className="glass-card overflow-hidden group">
@@ -121,7 +204,7 @@ function ProjectCard({
         <div className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3">
           <div className="rounded-lg bg-black/50 px-2.5 py-1 sm:px-3 sm:py-1.5 backdrop-blur-sm text-right">
             <p className="text-[8px] sm:text-[9px] text-white/50 uppercase tracking-wider">Share Price</p>
-            <p className="text-base sm:text-lg font-bold text-white">{formatSolInr(project.pricePerShare)}</p>
+            <p className="text-base sm:text-lg font-bold text-white">{formatAlgo(project.pricePerShare)}</p>
           </div>
         </div>
       </div>
@@ -188,33 +271,114 @@ function ProjectCard({
       {/* Engagement */}
       <div className="mx-4 sm:mx-5 mt-2.5 sm:mt-3 flex items-center gap-4 text-[11px] text-muted">
         <span>{likeCount.toLocaleString()} likes</span>
-        <span>{project.comments} comments</span>
+        <span>{totalComments.toLocaleString()} comments</span>
       </div>
 
       {/* Action bar — icons only on mobile, icon+text on desktop */}
       <div className="mx-4 sm:mx-5 mt-2 flex items-center border-t border-card-border">
-        <motion.button whileTap={{ scale: 0.9 }} onClick={toggleLike} className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-medium transition ${liked ? "text-loss" : "text-muted hover:text-loss"}`}>
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.9 }}
+          onClick={toggleLike}
+          aria-pressed={liked}
+          className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-medium transition ${liked ? "text-loss" : "text-muted hover:text-loss"}`}
+        >
           <svg className={`h-[18px] w-[18px] transition ${liked ? "fill-loss" : "fill-none"}`} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
           <span className="hidden sm:inline">Like</span>
         </motion.button>
-        <button className="flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-medium text-muted transition hover:text-accent-light">
+        <button
+          type="button"
+          onClick={() => setCommentsOpen((o) => !o)}
+          className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-medium transition hover:text-accent-light ${commentsOpen ? "text-accent-light" : "text-muted"}`}
+        >
           <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 20.25c4.97 0 9-3.694 9-8.25s-4.03-8.25-9-8.25S3 7.444 3 12c0 2.104.859 4.023 2.273 5.48.432.447.74 1.04.586 1.641a4.483 4.483 0 01-.923 1.785A5.969 5.969 0 006 21c1.282 0 2.47-.402 3.445-1.087.81.22 1.668.337 2.555.337z" /></svg>
           <span className="hidden sm:inline">Comment</span>
         </button>
-        <button className="flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-medium text-muted transition hover:text-foreground">
+        <button type="button" onClick={() => void onShare()} className="flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-medium text-muted transition hover:text-foreground">
           <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" /></svg>
           <span className="hidden sm:inline">Share</span>
         </button>
-        <motion.button whileTap={{ scale: 0.95 }} onClick={() => onInvestClick(project)} className="flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-bold text-gain/70 transition hover:text-gain">
+        <motion.button type="button" whileTap={{ scale: 0.95 }} onClick={() => onInvestClick(project)} className="flex flex-1 items-center justify-center gap-1.5 py-2.5 sm:py-3 text-xs font-bold text-gain/70 transition hover:text-gain">
           <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" /></svg>
           <span className="hidden xs:inline">Invest</span>
         </motion.button>
       </div>
+
+      <AnimatePresence initial={false}>
+        {commentsOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mx-4 sm:mx-5 overflow-hidden border-t border-card-border"
+          >
+            <div className="space-y-3 py-3">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted">
+                Your comments · {extraComments.length} on this device
+              </p>
+              {extraComments.length === 0 ? (
+                <p className="text-xs text-muted">No comments yet. Be the first to share your take.</p>
+              ) : (
+                <ul className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                  {extraComments.map((c) => (
+                    <li key={c.id} className="rounded-lg border border-card-border bg-card/50 px-3 py-2">
+                      <p className="text-[10px] font-semibold text-foreground">{c.author}</p>
+                      <p className="mt-0.5 text-xs text-foreground/85">{c.text}</p>
+                      <p className="mt-1 text-[10px] text-muted">{c.createdAt}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                <label className="block min-w-0 flex-1 text-[10px] font-medium text-muted">
+                  <span className="mb-1 block">Add a comment</span>
+                  <textarea
+                    value={commentDraft}
+                    onChange={(e) => setCommentDraft(e.target.value)}
+                    rows={2}
+                    maxLength={2000}
+                    placeholder="Thoughts on this project…"
+                    className="w-full resize-none rounded-lg border border-card-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent/50"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={postComment}
+                  className="shrink-0 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-white transition hover:bg-accent/90 sm:mb-0.5"
+                >
+                  Post
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
 
 function TradeHistorySidebar({ trades, onConfirm, onCancel }: { trades: TradeRecord[]; onConfirm: (id: string) => void; onCancel: (id: string) => void }) {
+  const { user } = useAuth();
+  const walletUserId = useWalletUserId();
+  const [liveWallet, setLiveWallet] = useState<WalletData | null>(null);
+
+  const refreshWallet = useCallback(() => {
+    void apiGetWallet(walletUserId)
+      .then((w) => setLiveWallet(w))
+      .catch(() => setLiveWallet(null));
+  }, [walletUserId]);
+
+  useEffect(() => {
+    refreshWallet();
+    const onAppWalletRefresh = () => refreshWallet();
+    window.addEventListener(APP_WALLET_REFRESH_EVENT, onAppWalletRefresh);
+    return () => window.removeEventListener(APP_WALLET_REFRESH_EVENT, onAppWalletRefresh);
+  }, [refreshWallet]);
+
+  const balance = liveWallet?.balance ?? wallet.balance;
+  const invested = liveWallet?.invested ?? wallet.invested;
+
   const pending = trades.filter((t) => t.status === "pending");
   const confirmed = trades.filter((t) => t.status === "confirmed");
   const cancelled = trades.filter((t) => t.status === "cancelled");
@@ -224,20 +388,20 @@ function TradeHistorySidebar({ trades, onConfirm, onCancel }: { trades: TradeRec
     <div className="flex flex-col gap-4">
       <motion.div initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.1 }} className="glass-card p-4">
         <div className="flex items-center gap-3">
-          <Avatar initials="AK" size="md" />
-          <div>
-            <p className="font-semibold text-sm">Arjun Kapoor</p>
-            <p className="text-[10px] text-muted">@arjunkapoor</p>
+          <Avatar initials={viewerInitials(user)} size="md" />
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-sm">{viewerName(user)}</p>
+            <p className="truncate text-[10px] text-muted">{viewerHandle(user)}</p>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <div className="rounded-lg bg-card px-3 py-2">
             <p className="text-[10px] text-muted">Balance</p>
-            <p className="text-sm font-bold text-foreground">{formatSolInr(wallet.balance)}</p>
+            <p className="text-sm font-bold text-foreground">{formatAlgo(balance)}</p>
           </div>
           <div className="rounded-lg bg-card px-3 py-2">
             <p className="text-[10px] text-muted">Invested</p>
-            <p className="text-sm font-bold text-foreground">{formatSolInr(wallet.invested)}</p>
+            <p className="text-sm font-bold text-foreground">{formatAlgo(invested)}</p>
           </div>
         </div>
       </motion.div>
@@ -261,13 +425,13 @@ function TradeHistorySidebar({ trades, onConfirm, onCancel }: { trades: TradeRec
           <div className="flex flex-col gap-2 max-h-[calc(100vh-400px)] overflow-y-auto scrollbar-none">
             {pending.length > 0 && (
               <>
-                <div className="flex items-center justify-between py-1"><span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Pending</span><span className="text-[10px] text-amber-400 font-bold">{formatSolInr(totalPending)}</span></div>
+                <div className="flex items-center justify-between py-1"><span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Pending</span><span className="text-[10px] text-amber-400 font-bold">{formatAlgo(totalPending)}</span></div>
                 {pending.map((trade) => (
                   <motion.div key={trade.id} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
                     <div className="flex items-center gap-2">
                       <Avatar initials={trade.creatorAvatar} size="sm" />
                       <div className="min-w-0 flex-1"><p className="text-xs font-semibold truncate">{trade.projectTitle}</p><p className="text-[10px] text-muted">{trade.creatorName} · {trade.timestamp}</p></div>
-                      <div className="text-right shrink-0"><p className="text-xs font-bold text-foreground">{trade.shares} shares</p><p className="text-[10px] text-muted">{formatSolInr(trade.amount)}</p></div>
+                      <div className="text-right shrink-0"><p className="text-xs font-bold text-foreground">{trade.shares} shares</p><p className="text-[10px] text-muted">{formatAlgo(trade.amount)}</p></div>
                     </div>
                     <div className="mt-2 flex gap-2">
                       <motion.button whileTap={{ scale: 0.95 }} onClick={() => onConfirm(trade.id)} className="flex-1 rounded-lg bg-gain/20 py-1.5 text-[10px] font-bold text-gain transition hover:bg-gain/30">Confirm</motion.button>
@@ -311,7 +475,7 @@ function TradeHistorySidebar({ trades, onConfirm, onCancel }: { trades: TradeRec
         </div>
       </motion.div>
 
-      <div className="px-2 text-[10px] text-muted/50"><p>About · Terms · Privacy · Careers</p><p className="mt-1">Valyou &copy; 2026 · Invest in Ideas</p></div>
+      <div className="px-2 text-[10px] text-muted/50"><p>About · Terms · Privacy · Careers</p><p className="mt-1">Valyou &copy; 2026 · Build with ALGO</p></div>
     </div>
   );
 }
@@ -341,6 +505,7 @@ export default function HomePage() {
     };
     setTrades((prev) => [newTrade, ...prev]);
     showToast(`Invested ${shares} shares in ${project.title}`);
+    emitAppWalletRefresh();
   }, [showToast]);
 
   const confirmTrade = useCallback((id: string) => {
@@ -443,7 +608,7 @@ export default function HomePage() {
                 </div>
                 <p className="text-xs font-bold text-white truncate">{p.title}</p>
                 <p className="text-[10px] text-white/60 truncate">{p.creator.name}</p>
-                <p className="mt-2 text-sm font-bold text-white tabular-nums">{formatSolInr(p.price)}</p>
+                <p className="mt-2 text-sm font-bold text-white tabular-nums">{formatAlgo(p.price)}</p>
               </motion.div>
             </Link>
           ))}
@@ -475,27 +640,6 @@ export default function HomePage() {
             </div>
           </motion.div>
 
-          {/* Composer — simplified on mobile */}
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 }} className="glass-card mt-3 sm:mt-4 p-3 sm:p-4">
-            <div className="flex items-center gap-2.5 sm:gap-3">
-              <Avatar initials="AK" size="sm" />
-              <input type="text" placeholder="Upload a project..." className="flex-1 rounded-xl bg-card border border-card-border px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-foreground placeholder:text-muted/60 outline-none focus:border-accent/50 transition-colors" readOnly />
-              <button className="shrink-0 rounded-lg bg-accent px-3 sm:px-5 py-2 sm:py-1.5 text-xs font-semibold text-white transition hover:bg-accent-light">Publish</button>
-            </div>
-            <div className="hidden sm:flex mt-3 items-center border-t border-card-border pt-3 gap-1">
-              {[
-                { label: "Project", color: "text-purple-400", icon: "M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58" },
-                { label: "Milestone", color: "text-amber-400", icon: "M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2z" },
-                { label: "Demo", color: "text-gain", icon: "M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" },
-              ].map((a) => (
-                <button key={a.label} className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ${a.color} transition hover:bg-card`}>
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d={a.icon} /></svg>
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </motion.div>
-
           {/* Pending trades banner */}
           <AnimatePresence>
             {pendingCount > 0 && (
@@ -520,6 +664,7 @@ export default function HomePage() {
               <ProjectCard
                 key={project.id}
                 project={project}
+                showToast={showToast}
                 onInvestClick={(selectedProject) => {
                   setActiveInvestProject(selectedProject);
                   setInvestShares(1);
@@ -597,11 +742,11 @@ export default function HomePage() {
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="rounded-lg border border-card-border p-3">
                     <p className="text-muted">Price / Share</p>
-                    <p className="font-semibold">{formatSolInr(activeInvestProject.pricePerShare)}</p>
+                    <p className="font-semibold">{formatAlgo(activeInvestProject.pricePerShare)}</p>
                   </div>
                   <div className="rounded-lg border border-card-border p-3">
                     <p className="text-muted">Account Balance</p>
-                    <p className="font-semibold">{wallet.balance.toFixed(4)} SOL · {fmtInr.format(wallet.balance * SOL_TO_INR)}</p>
+                    <p className="font-semibold">{formatAlgo(wallet.balance)}</p>
                   </div>
                 </div>
 
@@ -619,13 +764,13 @@ export default function HomePage() {
                 <div className="rounded-lg border border-card-border p-3 text-sm">
                   <p className="text-muted">Total price</p>
                   <p className="font-semibold">
-                    {formatSolInr(investShares * activeInvestProject.pricePerShare)}
+                    {formatAlgo(investShares * activeInvestProject.pricePerShare)}
                   </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
                   <button
-                    onClick={() => showToast("Use dashboard to add SOL balance with Devnet faucet.")}
+                    onClick={() => showToast("Use portfolio to fund and manage your ALGO wallet.")}
                     className="rounded-lg border border-gain/60 px-3 py-2 text-xs font-semibold text-gain transition hover:bg-gain/10"
                   >
                     Add Balance

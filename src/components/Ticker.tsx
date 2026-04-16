@@ -1,15 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { apiGetProjects } from "@/lib/api-client";
-import type { ProjectStock } from "@/lib/data";
+import { useMemo } from "react";
+import { useMergedProjects } from "@/hooks/useMergedProjects";
 
 export default function Ticker() {
-  const [projects, setProjects] = useState<ProjectStock[]>([]);
-
-  useEffect(() => {
-    apiGetProjects().then(setProjects).catch(() => setProjects([]));
-  }, []);
+  const projects = useMergedProjects();
 
   const items = useMemo(() => [...projects, ...projects], [projects]);
 
@@ -19,7 +14,7 @@ export default function Ticker() {
         {items.map((p, i) => (
           <span key={`${p.id}-${i}`} className="mx-4 inline-flex items-center gap-2 text-xs">
             <span className="font-medium text-foreground/80">{p.title}</span>
-            <span className="tabular-nums text-foreground/60">{p.price.toFixed(2)} VALU</span>
+            <span className="tabular-nums text-foreground/60">{p.price.toFixed(2)} ALGO</span>
             <span className={p.changePercent >= 0 ? "text-gain" : "text-loss"}>
               {p.changePercent >= 0 ? "+" : ""}
               {p.changePercent.toFixed(2)}%

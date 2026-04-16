@@ -152,6 +152,10 @@ export interface ProjectStock {
   coverIcon: string;
   fundingGoal: number;
   fundingRaised: number;
+  /** Posted-project issuance cap (optional; not all listings define this). */
+  totalShares?: number;
+  /** Shares treated as sold from initial raise estimate (optional). */
+  sharesSold?: number;
   backers: number;
   daysLeft: number;
   milestone: string;
@@ -173,8 +177,57 @@ export interface Holding {
   invested: number;
   currentValue: number;
   quantity: number;
+  reservedQuantity?: number;
   avgPrice: number;
   currentPrice: number;
+}
+
+export interface OrderBookEntry {
+  price: number;
+  quantity: number;
+  total: number;
+}
+
+export interface TradingOrder {
+  id: string;
+  projectId: string;
+  userId: string;
+  side: "buy" | "sell";
+  type: "market" | "limit";
+  limitPrice?: number;
+  quantity: number;
+  remainingQuantity: number;
+  status: "open" | "partially_filled" | "filled" | "cancelled" | "rejected";
+  reservedAlgo: number;
+  reservedShares: number;
+  createdAt?: string;
+}
+
+export interface RecentTrade {
+  id: string;
+  projectId: string;
+  type: "buy" | "sell";
+  price: number;
+  quantity: number;
+  time: string;
+  user: string;
+}
+
+export interface ProjectStats24h {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume24h: string;
+  trades24h: number;
+  avgPrice: number;
+  holders: number;
+  allTimeHigh: number;
+  allTimeLow: number;
+  rank: number;
+  creatorScore: number;
+  endorsements: number;
+  backers: string;
 }
 
 export interface FundingProject {
@@ -184,9 +237,12 @@ export interface FundingProject {
   goal: number;
   raised: number;
   backers: number;
+  /** Crowdfunding backer perks (access, recognition, roadmap)—not retail coupons. */
   reward: string;
   daysLeft: number;
   image: string;
+  /** Startup campaigns appear on /funding; other segments are stored but not listed. */
+  segment?: "startup" | "other";
 }
 
 export interface Coupon {
@@ -535,11 +591,66 @@ export const holdings: Holding[] = [
 // ─── Funding ───
 
 export const fundingProjects: FundingProject[] = [
-  { id: "ai-resume-builder", title: "AI-Powered Resume Builder", description: "Build resumes that actually get callbacks using AI-driven optimization", goal: 500000, raised: 387500, backers: 1240, reward: "30% off Premium Plan for 1 year", daysLeft: 12, image: "AI" },
-  { id: "decentralized-skill-verification", title: "Decentralized Skill Verification", description: "On-chain skill badges that employers can trust and verify instantly", goal: 750000, raised: 412000, backers: 890, reward: "Free verification badge + early access", daysLeft: 24, image: "BC" },
-  { id: "mentor-match-platform", title: "Mentor Match Platform", description: "Connect with industry mentors through AI-matched compatibility scores", goal: 300000, raised: 267000, backers: 2100, reward: "3 free mentor sessions + lifetime discount", daysLeft: 5, image: "MM" },
-  { id: "hireiq-ml-hiring-engine", title: "HireIQ — ML Hiring Engine", description: "Public API for predicting candidate-role fit with 94% accuracy", goal: 800000, raised: 523000, backers: 1450, reward: "Free API access (10K calls/month) for 1 year", daysLeft: 15, image: "HI" },
-  { id: "scaledb-auto-sharding", title: "ScaleDB — Auto-Sharding Engine", description: "Postgres extension that auto-shards based on query patterns", goal: 600000, raised: 245000, backers: 530, reward: "Lifetime premium access + exclusive coupon", daysLeft: 22, image: "SD" },
+  {
+    id: "ai-resume-builder",
+    title: "AI-Powered Resume Builder",
+    description: "Build resumes that actually get callbacks using AI-driven optimization",
+    goal: 500000,
+    raised: 387500,
+    backers: 1240,
+    reward: "Founding backer credit on the Valyou market · quarterly transparency calls",
+    daysLeft: 12,
+    image: "AI",
+    segment: "startup",
+  },
+  {
+    id: "decentralized-skill-verification",
+    title: "Decentralized Skill Verification",
+    description: "On-chain skill badges that employers can trust and verify instantly",
+    goal: 750000,
+    raised: 412000,
+    backers: 890,
+    reward: "Public supporter listing · early access to verifier APIs when live",
+    daysLeft: 24,
+    image: "BC",
+    segment: "startup",
+  },
+  {
+    id: "mentor-match-platform",
+    title: "Mentor Match Platform",
+    description: "Connect with industry mentors through AI-matched compatibility scores",
+    goal: 300000,
+    raised: 267000,
+    backers: 2100,
+    reward: "Backer badge + invite-only beta before public launch",
+    daysLeft: 5,
+    image: "MM",
+    segment: "startup",
+  },
+  {
+    id: "hireiq-ml-hiring-engine",
+    title: "HireIQ — ML Hiring Engine",
+    description: "Public API for predicting candidate-role fit with 94% accuracy",
+    goal: 800000,
+    raised: 523000,
+    backers: 1450,
+    reward: "Roadmap AMA access · first look at fairness & bias reports",
+    daysLeft: 15,
+    image: "HI",
+    segment: "startup",
+  },
+  {
+    id: "scaledb-auto-sharding",
+    title: "ScaleDB — Auto-Sharding Engine",
+    description: "Postgres extension that auto-shards based on query patterns",
+    goal: 600000,
+    raised: 245000,
+    backers: 530,
+    reward: "Technical deep-dive sessions · credits toward future enterprise tier",
+    daysLeft: 22,
+    image: "SD",
+    segment: "startup",
+  },
 ];
 
 // ─── Coupons ───
@@ -564,38 +675,6 @@ export const wallet = {
 };
 
 // ─── Trading page helpers ───
-
-export interface OrderBookEntry {
-  price: number;
-  quantity: number;
-  total: number;
-}
-
-export interface RecentTrade {
-  id: string;
-  type: "buy" | "sell";
-  price: number;
-  quantity: number;
-  time: string;
-  user: string;
-}
-
-export interface ProjectStats24h {
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume24h: string;
-  trades24h: number;
-  avgPrice: number;
-  holders: number;
-  allTimeHigh: number;
-  allTimeLow: number;
-  rank: number;
-  creatorScore: number;
-  endorsements: number;
-  backers: string;
-}
 
 function generateOrderBook(basePrice: number): { bids: OrderBookEntry[]; asks: OrderBookEntry[] } {
   const bids: OrderBookEntry[] = [];
@@ -623,7 +702,7 @@ function generateOrderBook(basePrice: number): { bids: OrderBookEntry[]; asks: O
 
 const tradeNames = ["Aarav M.", "Diya S.", "Kabir R.", "Ishaan P.", "Saanvi K.", "Vihaan D.", "Anaya B.", "Arjun T.", "Myra G.", "Reyansh L."];
 
-function generateRecentTrades(basePrice: number): RecentTrade[] {
+function generateRecentTrades(basePrice: number, projectId = "demo-project"): RecentTrade[] {
   const trades: RecentTrade[] = [];
   const now = Date.now();
   for (let i = 0; i < 15; i++) {
@@ -631,6 +710,7 @@ function generateRecentTrades(basePrice: number): RecentTrade[] {
     const offset = (Math.random() - 0.5) * basePrice * 0.01;
     trades.push({
       id: `trade-${i}`,
+      projectId,
       type: isBuy ? "buy" : "sell",
       price: parseFloat((basePrice + offset).toFixed(2)),
       quantity: Math.floor(Math.random() * 20 + 1),

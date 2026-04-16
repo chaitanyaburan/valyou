@@ -4,7 +4,11 @@ import { FundingProjectModel } from "@/models";
 
 export async function GET() {
   await connectMongo();
-  const funding = await FundingProjectModel.find().sort({ createdAt: 1 }).lean();
+  const funding = await FundingProjectModel.find({
+    $or: [{ segment: "startup" }, { segment: { $exists: false } }],
+  })
+    .sort({ createdAt: 1 })
+    .lean();
   return NextResponse.json(funding);
 }
 

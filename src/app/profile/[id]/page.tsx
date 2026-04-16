@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,8 +9,10 @@ import ThemeToggle from "@/components/ThemeToggle";
 import type { Post, UserProfile } from "@/lib/social";
 import type { Creator, ProjectStock } from "@/lib/data";
 import { apiGetCreators, apiGetPosts, apiGetProfile, apiGetProjects } from "@/lib/api-client";
+import { mergePostedWithApi, subscribeMarketProjects } from "@/lib/market-projects";
 import { useAuth } from "@/contexts/AuthContext";
 import CredibilityDashboard from "@/components/credibility/CredibilityDashboard";
+import type { GitHubScoringData } from "@/lib/credibility-engine";
 
 const container = {
   hidden: {},
@@ -25,39 +27,26 @@ const item = {
 const tabs = ["Posts", "Projects", "Credibility", "Endorsements"] as const;
 type Tab = (typeof tabs)[number];
 
-function hashString(input: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < input.length; i++) {
-    hash ^= input.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function generateHeatmap(seed: string): number[][] {
-  const rows: number[][] = [];
-  const base = hashString(seed);
-  for (let r = 0; r < 7; r++) {
-    const row: number[] = [];
-    for (let c = 0; c < 20; c++) {
-      const hash = hashString(`${base}-${r}-${c}`);
-      const rand = (hash % 1000) / 1000;
-      if (rand < 0.3) row.push(0);
-      else if (rand < 0.55) row.push(1);
-      else if (rand < 0.8) row.push(2);
-      else row.push(3);
-    }
-    rows.push(row);
-  }
-  return rows;
-}
-
 const heatmapColors = [
   "bg-card-border",
   "bg-emerald-900",
   "bg-emerald-700",
   "bg-emerald-500",
 ];
+
+function githubIntensity(count: number, max: number): number {
+  if (count <= 0 || max <= 0) return 0;
+  const t = count / max;
+  if (t < 0.34) return 1;
+  if (t < 0.67) return 2;
+  return 3;
+}
+
+function normalizeWeeklyActivity(week: number[]): number[] {
+  const out = [...week];
+  while (out.length < 7) out.push(0);
+  return out.slice(0, 7);
+}
 
 function PostTypeBadge({ type }: { type: Post["type"] }) {
   if (type === "text") return null;
@@ -129,32 +118,123 @@ export default function ProfilePage() {
   const params = useParams();
   const { user } = useAuth();
   const id = params.id as string;
+  const idRef = useRef(id);
   const isOwnProfile = Boolean(user && user.userId === id);
   const [activeTab, setActiveTab] = useState<Tab>("Posts");
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [creator, setCreator] = useState<Creator | null>(null);
   const [creatorProjects, setCreatorProjects] = useState<ProjectStock[]>([]);
   const [userPosts, setUserPosts] = useState<Post[]>([]);
+  const [profileLoadStatus, setProfileLoadStatus] = useState<"loading" | "ready" | "missing">("loading");
+  /** Route id we last finished loading (success or missing). Null until first completion for this mount / after a route change. */
+  const [hydratedRouteId, setHydratedRouteId] = useState<string | null>(null);
+  const [githubCred, setGithubCred] = useState<GitHubScoringData | null>(null);
+  const [credGithubHandle, setCredGithubHandle] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([apiGetProfile(id), apiGetProjects(), apiGetCreators(), apiGetPosts(id)])
-      .then(([p, projects, creators, posts]) => {
+    idRef.current = id;
+    let cancelled = false;
+    const startedFor = id;
+    const stillHere = () => !cancelled && idRef.current === startedFor;
+
+    async function load(softFailure = false) {
+      try {
+        const [p, apiProjects, creators, posts] = await Promise.all([
+          apiGetProfile(startedFor),
+          apiGetProjects(),
+          apiGetCreators(),
+          apiGetPosts(startedFor),
+        ]);
+        const projects = await mergePostedWithApi(apiProjects);
+        if (!stillHere()) return;
         setProfile(p);
-        setCreator(creators.find((c) => c.id === id) ?? null);
-        setCreatorProjects(projects.filter((proj) => proj.creator.id === id));
+        setCreator(creators.find((c) => c.id === startedFor) ?? null);
+        setCreatorProjects(projects.filter((proj) => proj.creator.id === startedFor));
         setUserPosts(posts);
-      })
-      .catch(() => {
+
+        let ghCred: GitHubScoringData | null = null;
+        let ghHandle: string | null = null;
+        try {
+          const credRes = await fetch(`/api/profiles/${encodeURIComponent(startedFor)}/credibility`);
+          if (credRes.ok) {
+            const credJson = (await credRes.json()) as {
+              handles?: { github?: string };
+              result?: { rawData?: { github?: GitHubScoringData } } | null;
+            };
+            if (credJson.result?.rawData?.github) {
+              ghCred = credJson.result.rawData.github;
+              const h = (credJson.handles?.github || "").trim();
+              ghHandle = h || null;
+            }
+          }
+        } catch {
+          /* keep card on profile seed */
+        }
+
+        if (!stillHere()) return;
+        setGithubCred(ghCred);
+        setCredGithubHandle(ghHandle);
+        if (stillHere()) {
+          setHydratedRouteId(startedFor);
+          setProfileLoadStatus("ready");
+        }
+      } catch {
+        if (!stillHere()) return;
+        if (softFailure) return;
         setProfile(null);
         setCreator(null);
         setCreatorProjects([]);
         setUserPosts([]);
-      });
+        setGithubCred(null);
+        setCredGithubHandle(null);
+        setHydratedRouteId(startedFor);
+        setProfileLoadStatus("missing");
+      }
+    }
+
+    const t = window.setTimeout(() => {
+      setHydratedRouteId(null);
+      setProfileLoadStatus("loading");
+      setProfile(null);
+      setCreator(null);
+      setCreatorProjects([]);
+      setUserPosts([]);
+      setGithubCred(null);
+      setCredGithubHandle(null);
+      void load(false);
+    }, 0);
+    const unsub = subscribeMarketProjects(() => {
+      void load(true);
+    });
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+      unsub();
+    };
   }, [id]);
 
-  const heatmap = useMemo(() => generateHeatmap(id), [id]);
+  const showProfileSkeleton = profileLoadStatus === "loading" || hydratedRouteId !== id;
 
-  if (!profile) {
+  if (showProfileSkeleton) {
+    return (
+      <section className="flex min-h-[60vh] flex-col items-center justify-center gap-4 py-16">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden />
+        <p className="text-sm text-muted">Loading profile…</p>
+        <div className="mx-auto w-full max-w-lg space-y-4 px-4">
+          <div className="flex items-center gap-4">
+            <div className="h-16 w-16 shrink-0 animate-pulse rounded-full bg-card-border" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-4 w-40 animate-pulse rounded bg-card-border" />
+              <div className="h-3 w-56 animate-pulse rounded bg-card-border/80" />
+            </div>
+          </div>
+          <div className="h-24 animate-pulse rounded-xl bg-card-border/60" />
+        </div>
+      </section>
+    );
+  }
+
+  if (!profile || profileLoadStatus === "missing") {
     return (
       <section className="flex min-h-[60vh] flex-col items-center justify-center gap-4 py-16">
         <motion.div
@@ -163,7 +243,7 @@ export default function ProfilePage() {
           className="text-center"
         >
           <h1 className="text-2xl font-bold">Profile not found</h1>
-          <p className="mt-2 text-muted">This user doesn&apos;t exist or has been removed.</p>
+          <p className="mt-2 text-muted">This user doesn&apos;t exist, has been removed, or the profile could not be loaded.</p>
           <Link
             href="/"
             className="mt-4 inline-block rounded-full bg-accent px-6 py-2 text-sm font-semibold text-white transition hover:bg-accent-light"
@@ -277,43 +357,81 @@ export default function ProfilePage() {
           transition={{ duration: 0.5, delay: 0.3 }}
           className="glass-card p-5"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <svg className="h-5 w-5 text-foreground" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
             </svg>
             <h3 className="text-sm font-semibold">GitHub</h3>
+            {credGithubHandle && githubCred ? (
+              <a
+                href={`https://github.com/${encodeURIComponent(credGithubHandle)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-muted underline-offset-2 hover:text-accent-light hover:underline"
+              >
+                @{credGithubHandle}
+              </a>
+            ) : null}
           </div>
 
           <div className="mt-4 flex gap-6">
             <div className="text-center">
-              <p className="text-lg font-bold">{profile.githubRepos}</p>
+              <p className="text-lg font-bold">{githubCred?.publicRepos ?? profile.githubRepos}</p>
               <p className="text-xs text-muted">Repos</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold">{profile.githubStars.toLocaleString()}</p>
+              <p className="text-lg font-bold">{(githubCred?.totalStars ?? profile.githubStars).toLocaleString()}</p>
               <p className="text-xs text-muted">Stars</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold">{profile.githubStreak}</p>
-              <p className="text-xs text-muted">Day Streak</p>
+              <p className="text-lg font-bold">{githubCred != null ? githubCred.recentPushesLast30Days : profile.githubStreak}</p>
+              <p className="text-xs text-muted">{githubCred != null ? "Pushes (30d)" : "Day Streak"}</p>
             </div>
           </div>
 
-          {/* Contribution Heatmap */}
+          {/* Push activity (from credibility GitHub fetch) or placeholder */}
           <div className="mt-4 overflow-hidden">
-            <div className="flex flex-col gap-[3px]">
-              {heatmap.map((row, ri) => (
-                <div key={ri} className="flex gap-[3px]">
-                  {row.map((intensity, ci) => (
-                    <div
-                      key={ci}
-                      className={`h-[10px] w-[10px] rounded-[2px] ${heatmapColors[intensity]}`}
-                    />
+            {githubCred ? (
+              <>
+                <div className="flex items-end justify-between gap-1.5 sm:gap-2">
+                  {(() => {
+                    const week = normalizeWeeklyActivity(githubCred.weeklyActivity);
+                    const max = Math.max(1, ...week);
+                    const dayLabels = ["6d ago", "5d ago", "4d ago", "3d ago", "2d ago", "Yesterday", "Today"];
+                    return week.map((count, wi) => {
+                      const intensity = githubIntensity(count, max);
+                      return (
+                        <div key={wi} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                          <div
+                            className={`h-10 w-full max-w-[2.25rem] rounded-sm ${heatmapColors[intensity]}`}
+                            title={`${count} push-related event${count === 1 ? "" : "s"} (${dayLabels[wi] ?? ""})`}
+                          />
+                          <span className="truncate text-center text-[9px] text-muted">{dayLabels[wi]}</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+                <p className="mt-2 text-[10px] leading-snug text-muted">
+                  Push-related activity from the connected GitHub account (last 7 days). This is not GitHub&apos;s official
+                  contributions graph.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="flex items-end justify-between gap-1.5 opacity-40">
+                  {Array.from({ length: 7 }, (_, i) => (
+                    <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                      <div className="h-10 w-full max-w-[2.25rem] rounded-sm bg-card-border" />
+                      <span className="text-[9px] text-muted">—</span>
+                    </div>
                   ))}
                 </div>
-              ))}
-            </div>
-            <p className="mt-2 text-[10px] text-muted">Contributions in the last 20 weeks</p>
+                <p className="mt-2 text-[10px] leading-snug text-muted">
+                  Connect GitHub under Credibility to load public-repo stats and weekly push activity here.
+                </p>
+              </>
+            )}
           </div>
         </motion.div>
 

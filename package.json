@@ -11,12 +11,14 @@
     "db:seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
-    "@solana/web3.js": "^1.98.4",
+    "@perawallet/connect": "^1.5.2",
+    "algosdk": "^3.5.2",
     "bcryptjs": "^3.0.3",
     "framer-motion": "^12.38.0",
     "jose": "^6.2.2",
     "mongoose": "^9.4.1",
     "next": "16.2.3",
+    "razorpay": "^2.9.6",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1"

@@ -9,6 +9,7 @@ import type {
   ProjectStats24h,
   ProjectStock,
   RecentTrade,
+  TradingOrder,
 } from "@/lib/data";
 import type {
   Conversation,
@@ -20,7 +21,7 @@ import type {
 } from "@/lib/social";
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(url, { cache: "no-store", credentials: "include" });
   if (!res.ok) throw new Error(`Request failed: ${url}`);
   return res.json() as Promise<T>;
 }
@@ -28,6 +29,8 @@ async function getJson<T>(url: string): Promise<T> {
 export type WalletData = {
   userId: string;
   balance: number;
+  availableBalance: number;
+  reservedBalance: number;
   invested: number;
   currentValue: number;
   pnl: number;
@@ -145,7 +148,120 @@ export function apiGetProjectCandles(id: string) {
 }
 
 export function apiGetProjectOrderBook(id: string) {
-  return getJson<{ bids: OrderBookEntry[]; asks: OrderBookEntry[] }>(`/api/projects/${id}/orderbook`);
+  return getJson<{ bids: OrderBookEntry[]; asks: OrderBookEntry[]; microprice: number }>(`/api/projects/${id}/orderbook`);
+}
+
+export function apiGetProjectOrders(id: string) {
+  return getJson<{ userId: string; openOrders: TradingOrder[]; bids: OrderBookEntry[]; asks: OrderBookEntry[] }>(
+    `/api/projects/${id}/orders`,
+  );
+}
+
+export async function apiPlaceProjectOrder(
+  id: string,
+  body: { side: "buy" | "sell"; type: "market" | "limit"; quantity: number; limitPrice?: number },
+) {
+  const res = await fetch(`/api/projects/${id}/orders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Order failed.");
+  return data as {
+    order: TradingOrder;
+    executions: Array<{ price: number; quantity: number }>;
+    price: number;
+    result: TradingOrder["status"];
+    orderBook: { bids: OrderBookEntry[]; asks: OrderBookEntry[] };
+  };
+}
+
+export async function apiCancelProjectOrder(id: string, orderId: string) {
+  const res = await fetch(`/api/projects/${id}/orders/${orderId}/cancel`, {
+    method: "POST",
+    credentials: "include",
+  });
+  const data = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Cancel failed.");
+  return data as { order: TradingOrder };
+}
+
+export function apiGetOpenOrders() {
+  return getJson<{ userId: string; orders: TradingOrder[] }>("/api/orders");
+}
+
+export type WalletActivityFill = {
+  id: string;
+  projectId: string;
+  side: "buy" | "sell";
+  role: "buyer" | "seller" | "taker";
+  price: number;
+  quantity: number;
+  time: string;
+  createdAt?: string;
+};
+
+export function apiGetWalletActivity(limit = 40) {
+  return getJson<{ userId: string; fills: WalletActivityFill[] }>(`/api/wallet/activity?limit=${encodeURIComponent(String(limit))}`);
+}
+
+export async function apiPostWalletWithdraw(amount: number) {
+  const res = await fetch("/api/wallet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ action: "withdraw", amount }),
+  });
+  const data = (await res.json()) as { error?: string; wallet?: WalletData };
+  if (!res.ok) throw new Error(data.error ?? "Withdraw failed.");
+  return data as { ok: true; wallet: WalletData };
+}
+
+export type RazorpayWalletConfig = {
+  ready: boolean;
+  keyId: string | null;
+  algoPerInr: number;
+};
+
+export function apiGetRazorpayWalletConfig() {
+  return getJson<RazorpayWalletConfig>("/api/wallet/razorpay/config");
+}
+
+export async function apiCreateRazorpayWalletOrder(amountInr: number) {
+  const res = await fetch("/api/wallet/razorpay/create-order", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ amountInr }),
+  });
+  const data = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? "Could not create payment order.");
+  return data as {
+    orderId: string;
+    amount: number;
+    currency: string;
+    keyId: string;
+    amountInr: number;
+    algoCredit: number;
+  };
+}
+
+export async function apiVerifyRazorpayWalletPayment(body: {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}) {
+  const res = await fetch("/api/wallet/razorpay/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json()) as { error?: string };
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? "Payment verification failed.");
+  return data as { ok: true; wallet: WalletData; algoCredited?: number; alreadyProcessed?: boolean };
 }
 
 export function apiGetFeed() {

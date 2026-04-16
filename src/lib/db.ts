@@ -18,7 +18,7 @@ if (!global.__mongoose_cache__) {
   global.__mongoose_cache__ = cached;
 }
 
-function getEnvValue(key: string): string | undefined {
+export function getEnvValue(key: string): string | undefined {
   if (process.env[key]) return process.env[key];
   const candidates = [".env.local", "env.local"];
   for (const fileName of candidates) {
@@ -56,5 +56,14 @@ export async function connectMongo() {
   }
   cached.conn = await cached.promise;
   return cached.conn;
+}
+
+export async function connectDb(): Promise<boolean> {
+  try {
+    await connectMongo();
+    return true;
+  } catch {
+    return false;
+  }
 }
 

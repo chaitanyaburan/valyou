@@ -56,7 +56,7 @@ export default function SignUpPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Create account</h1>
           <p className="mt-1 text-sm text-muted">
-            You get a profile, wallet (VALU), and can use the same account across the app.
+            You get a profile and can use the same account across the app with Pera wallet on Algorand.
           </p>
         </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ResponsiveContainer,
@@ -18,24 +18,42 @@ import Link from "next/link";
 import type { ProjectStats24h, ProjectStock, RecentTrade, OrderBookEntry } from "@/lib/data";
 import {
   apiGetBatchProofs,
+  apiGetHoldings,
+  apiGetProjectOrders,
   apiGetProject,
   apiGetProjectCandles,
   apiGetProjectOrderBook,
   apiGetProjects,
   apiGetProjectTrades,
+  apiGetWallet,
+  apiPlaceProjectOrder,
+  apiCancelProjectOrder,
   apiSubmitBatchProof,
   type ProofEvidenceInput,
   type ProofSubmission,
+  type WalletData,
 } from "@/lib/api-client";
+import type { Holding, TradingOrder } from "@/lib/data";
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
 import SparklineChart from "@/components/SparklineChart";
 import { BatchTimelineFull } from "@/components/BatchTimeline";
 import DisputeBanner from "@/components/DisputeBanner";
 import DisputeModal from "@/components/DisputeModal";
+import { emitAppWalletRefresh } from "@/lib/app-wallet-events";
+import {
+  generateChartData,
+  generateOrderBook,
+  generateProjectStats24h,
+  generateRecentTrades,
+  getPostedProjectById,
+  isClientPostedProjectId,
+  mergePostedWithApi,
+} from "@/lib/market-projects";
 
 const fmt = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 });
 const fmtCompact = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
+const roundToDisplay = (value: number) => Number(value.toFixed(4));
 
 const periods = ["1D", "1W", "1M", "3M", "1Y"] as const;
 
@@ -68,7 +86,7 @@ function CustomTooltip({ active, payload, label }: any) {
   return (
     <div className="rounded-xl border border-card-border bg-card/95 px-4 py-3 shadow-2xl backdrop-blur-sm">
       <p className="mb-1 text-xs text-muted">{label}</p>
-      <p className="text-lg font-bold text-foreground">{fmt.format(Number(payload[0].value))} VALU</p>
+      <p className="text-lg font-bold text-foreground">{fmt.format(Number(payload[0].value))} ALGO</p>
       {payload[1] && (
         <p className="mt-1 text-xs text-muted">Vol: {payload[1].value?.toLocaleString("en-IN")}</p>
       )}
@@ -77,10 +95,16 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+type ProjectLoadMode = "initial" | "poll";
+
 export default function TradePage() {
   const params = useParams();
   const id = params.id as string;
+  const idRef = useRef(id);
   const [project, setProject] = useState<ProjectStock | null>(null);
+  /** Avoid showing "not found" before the first fetch finishes, and distinguish missing vs loading. */
+  const [projectLoadStatus, setProjectLoadStatus] = useState<"loading" | "ready" | "missing">("loading");
+  const [hydratedRouteId, setHydratedRouteId] = useState<string | null>(null);
   const [fullChart, setFullChart] = useState<Array<{ time: string; price: number; volume: number }>>([]);
   const [orderBook, setOrderBook] = useState<{ bids: OrderBookEntry[]; asks: OrderBookEntry[] }>({ bids: [], asks: [] });
   const [recentTrades, setRecentTrades] = useState<RecentTrade[]>([]);
@@ -96,6 +120,12 @@ export default function TradePage() {
   const [sliderValue, setSliderValue] = useState(0);
   const [activeInfoTab, setActiveInfoTab] = useState<"orderbook" | "trades">("orderbook");
   const [chartReady, setChartReady] = useState(false);
+  const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [holdings, setHoldings] = useState<Holding[]>([]);
+  const [openOrders, setOpenOrders] = useState<TradingOrder[]>([]);
+  const [tradeError, setTradeError] = useState<string | null>(null);
+  const [tradeResult, setTradeResult] = useState<string | null>(null);
+  const [placingOrder, setPlacingOrder] = useState(false);
   const [showDisputeModal, setShowDisputeModal] = useState(false);
   const [proofWallet, setProofWallet] = useState("");
   const [proofPayload, setProofPayload] = useState("");
@@ -111,7 +141,10 @@ export default function TradePage() {
   const [proofHistory, setProofHistory] = useState<ProofSubmission[]>([]);
   const [proofError, setProofError] = useState<string | null>(null);
   const [submittingProof, setSubmittingProof] = useState(false);
-  useEffect(() => setChartReady(true), []);
+  useLayoutEffect(() => {
+    const id = requestAnimationFrame(() => setChartReady(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   useEffect(() => {
     if (!project) return;
@@ -124,33 +157,120 @@ export default function TradePage() {
     scrollToTimeline();
     window.addEventListener("hashchange", scrollToTimeline);
     return () => window.removeEventListener("hashchange", scrollToTimeline);
-  }, [project?.id]);
+  }, [project?.id]); // eslint-disable-line react-hooks/exhaustive-deps -- hash target is per project id
 
-  useEffect(() => {
-    Promise.all([
-      apiGetProject(id),
-      apiGetProjectCandles(id),
-      apiGetProjectOrderBook(id),
-      apiGetProjectTrades(id),
-      apiGetProjects(),
-    ])
-      .then(([p, candles, ob, trades, projects]) => {
+  const loadMarketData = useCallback(
+    async (mode: ProjectLoadMode = "poll") => {
+      const startedFor = id;
+      const stillHere = () => idRef.current === startedFor;
+
+      const local = getPostedProjectById(startedFor);
+      if (local) {
+        const stats = generateProjectStats24h(local);
+        if (!stillHere()) return;
+        setProject(local);
+        setStats24h(stats);
+        setFullChart(generateChartData(local.price, 90));
+        const ob = generateOrderBook(local.price);
+        setOrderBook(ob);
+        setRecentTrades(generateRecentTrades(local.price, startedFor));
+        try {
+          const apiList = await apiGetProjects().catch(() => [] as ProjectStock[]);
+          if (!stillHere()) return;
+          setAllProjects(await mergePostedWithApi(apiList));
+          const [nextWallet, nextHoldings] = await Promise.all([apiGetWallet().catch(() => null), apiGetHoldings().catch(() => [])]);
+          if (!stillHere()) return;
+          setWallet(nextWallet);
+          setHoldings(nextHoldings);
+          setOpenOrders([]);
+        } catch {
+          if (!stillHere()) return;
+          if (mode === "initial") {
+            setAllProjects([]);
+            setWallet(null);
+            setHoldings([]);
+            setOpenOrders([]);
+          }
+        }
+        if (stillHere()) {
+          setHydratedRouteId(startedFor);
+          setProjectLoadStatus("ready");
+        }
+        return;
+      }
+
+      try {
+        const [p, candles, ob, trades, projects, nextWallet, nextHoldings, orderState] = await Promise.all([
+          apiGetProject(startedFor),
+          apiGetProjectCandles(startedFor),
+          apiGetProjectOrderBook(startedFor),
+          apiGetProjectTrades(startedFor),
+          apiGetProjects(),
+          apiGetWallet().catch(() => null),
+          apiGetHoldings().catch(() => []),
+          apiGetProjectOrders(startedFor).catch(() => ({ userId: "demo", openOrders: [], bids: [], asks: [] })),
+        ]);
+        if (!stillHere()) return;
         setProject(p);
         setStats24h(p.stats24h);
         setFullChart(candles);
-        setOrderBook(ob);
+        setOrderBook(orderState.bids.length || orderState.asks.length ? { bids: orderState.bids, asks: orderState.asks } : ob);
         setRecentTrades(trades);
-        setAllProjects(projects);
-      })
-      .catch(() => {
-        setProject(null);
-        setStats24h(null);
-        setFullChart([]);
-        setOrderBook({ bids: [], asks: [] });
-        setRecentTrades([]);
-        setAllProjects([]);
-      });
-  }, [id]);
+        setAllProjects(await mergePostedWithApi(projects));
+        setWallet(nextWallet);
+        setHoldings(nextHoldings);
+        setOpenOrders(orderState.openOrders);
+        if (stillHere()) {
+          setHydratedRouteId(startedFor);
+          setProjectLoadStatus("ready");
+        }
+      } catch {
+        if (!stillHere()) return;
+        if (mode === "initial") {
+          setProject(null);
+          setStats24h(null);
+          setFullChart([]);
+          setOrderBook({ bids: [], asks: [] });
+          setRecentTrades([]);
+          setAllProjects([]);
+          setWallet(null);
+          setHoldings([]);
+          setOpenOrders([]);
+          setHydratedRouteId(startedFor);
+          setProjectLoadStatus("missing");
+        } else {
+          setTradeError("Could not refresh market data. Showing last loaded prices.");
+          window.setTimeout(() => setTradeError(null), 4000);
+        }
+      }
+    },
+    [id],
+  );
+
+  useEffect(() => {
+    idRef.current = id;
+    setHydratedRouteId(null);
+    setProjectLoadStatus("loading");
+    setProject(null);
+    void loadMarketData("initial").then(() => setTradeError(null));
+  }, [id, loadMarketData]);
+
+  /** Keep order book, trades, and mark in sync when other users move the market (not only after your own order). */
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void loadMarketData("poll");
+    };
+    const intervalId = setInterval(refreshIfVisible, 12_000);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadMarketData("poll");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [id, loadMarketData]);
 
   const activeBatch = useMemo(
     () => project?.batches.find((b) => b.status === "in_progress" || b.status === "overdue" || b.status === "blocked") ?? null,
@@ -173,12 +293,46 @@ export default function TradePage() {
   );
 
   const handleOrder = useCallback(() => {
-    if (!amount || parseFloat(amount) <= 0) return;
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 2500);
-    setAmount("");
-    setSliderValue(0);
-  }, [amount]);
+    void (async () => {
+      if (!project || !amount || parseFloat(amount) <= 0) return;
+      if (isClientPostedProjectId(project.id)) {
+        setTradeError("This listing exists only in your browser. Market data is simulated; live orders use server-backed projects.");
+        return;
+      }
+      setPlacingOrder(true);
+      setTradeError(null);
+      setTradeResult(null);
+      try {
+        const price = orderType === "limit" && limitPrice ? parseFloat(limitPrice) : project.price;
+        const quantity = parseFloat((parseFloat(amount) / price).toFixed(4));
+        const result = await apiPlaceProjectOrder(project.id, {
+          side: tab,
+          type: orderType,
+          quantity,
+          limitPrice: orderType === "limit" && limitPrice ? parseFloat(limitPrice) : undefined,
+        });
+        setShowSuccess(true);
+        const fills = result.executions.length;
+        const statusLabel = result.result.replaceAll("_", " ");
+        const hint =
+          result.result === "rejected" && fills === 0
+            ? " — reserved funds were released; check ALGO balance or project price."
+            : "";
+        setTradeResult(`Order ${statusLabel}${fills ? ` · ${fills} fills` : ""}${hint}`);
+        setTimeout(() => setShowSuccess(false), 2500);
+        setAmount("");
+        setSliderValue(0);
+        setLimitPrice("");
+        await loadMarketData("poll");
+        emitAppWalletRefresh();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Order failed.";
+        setTradeError(message);
+      } finally {
+        setPlacingOrder(false);
+      }
+    })();
+  }, [amount, limitPrice, loadMarketData, orderType, project, tab]);
 
   const handleSubmitProof = useCallback(async () => {
     if (!project || !activeBatch) return;
@@ -218,13 +372,36 @@ export default function TradePage() {
   const handleSlider = useCallback(
     (pct: number) => {
       setSliderValue(pct);
-      const walletBalance = 10000;
-      setAmount(String(Math.floor((pct / 100) * walletBalance)));
+      const ownedShares = holdings.find((holding) => holding.projectId === project?.id)?.quantity ?? 0;
+      const base = tab === "buy" ? wallet?.availableBalance ?? 0 : ownedShares;
+      if (tab === "buy") {
+        setAmount(String(Math.floor((pct / 100) * base)));
+      } else {
+        const price = orderType === "limit" && limitPrice ? parseFloat(limitPrice) : project?.price ?? 1;
+        const quantity = (pct / 100) * base;
+        setAmount(String(roundToDisplay(quantity * price)));
+      }
     },
-    []
+    [holdings, limitPrice, orderType, project?.id, project?.price, tab, wallet?.availableBalance]
   );
 
-  if (!project) {
+  const showTradeSkeleton = projectLoadStatus === "loading" || hydratedRouteId !== id;
+
+  if (showTradeSkeleton) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 py-16">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent border-t-transparent" aria-hidden />
+        <p className="text-sm text-muted">Loading project…</p>
+        <div className="mx-auto w-full max-w-md space-y-3 px-4">
+          <div className="h-4 w-[68%] max-w-md animate-pulse rounded bg-card-border" />
+          <div className="h-32 animate-pulse rounded-xl bg-card-border/80" />
+          <div className="h-24 animate-pulse rounded-xl bg-card-border/60" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!project || projectLoadStatus === "missing") {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <motion.div
@@ -239,7 +416,7 @@ export default function TradePage() {
             </svg>
           </div>
           <p className="mb-2 text-2xl font-semibold">Project not found</p>
-          <p className="mb-6 text-muted">The project you&apos;re looking for doesn&apos;t exist.</p>
+          <p className="mb-6 text-muted">The project you&apos;re looking for doesn&apos;t exist or could not be loaded.</p>
           <Link
             href="/market"
             className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-accent-light"
@@ -259,6 +436,11 @@ export default function TradePage() {
   const strokeColor = isPositive ? "#22c55e" : "#ef4444";
   const effectivePrice = orderType === "limit" && limitPrice ? parseFloat(limitPrice) : project.price;
   const units = amount ? (parseFloat(amount) / effectivePrice).toFixed(4) : "0.0000";
+  const projectHolding = holdings.find((holding) => holding.projectId === project.id) ?? null;
+  const freeShares = Math.max(0, (projectHolding?.quantity ?? 0) - (projectHolding?.reservedQuantity ?? 0));
+  const estimatedTotal = amount ? parseFloat(amount) : 0;
+  const missingAlgo = tab === "buy" ? Math.max(0, estimatedTotal - (wallet?.availableBalance ?? 0)) : 0;
+  const missingShares = tab === "sell" ? Math.max(0, parseFloat(units || "0") - freeShares) : 0;
   const staking = stakingConfig[project.creator.stakingLevel] || stakingConfig.Bronze;
   const maxBidTotal = Math.max(1, ...orderBook.bids.map((b) => b.total));
   const maxAskTotal = Math.max(1, ...orderBook.asks.map((a) => a.total));
@@ -320,7 +502,7 @@ export default function TradePage() {
             <div className="flex items-end gap-6 sm:text-right">
               <div>
                 <p className="text-xs text-muted uppercase tracking-wider mb-0.5">Share Price</p>
-                <p className="text-3xl font-bold tabular-nums tracking-tight">{fmt.format(project.price)} <span className="text-sm text-muted">VALU</span></p>
+                <p className="text-3xl font-bold tabular-nums tracking-tight">{fmt.format(project.price)} <span className="text-sm text-muted">ALGO</span></p>
                 <PriceChange value={project.change} percent={project.changePercent} />
               </div>
             </div>
@@ -376,39 +558,43 @@ export default function TradePage() {
             </div>
 
             <div className="min-w-0 px-6 pt-4 pb-2">
-              {chartReady ? (
-                <ResponsiveContainer width="100%" height={380} minWidth={0} minHeight={1}>
-                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={strokeColor} stopOpacity={0.25} />
-                        <stop offset="50%" stopColor={strokeColor} stopOpacity={0.08} />
-                        <stop offset="100%" stopColor={strokeColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" vertical={false} />
-                    <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} interval="preserveStartEnd" />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} domain={["auto", "auto"]} tickFormatter={(v) => `${v}`} width={50} />
-                    <RTooltip content={<CustomTooltip />} cursor={{ stroke: "#6366f1", strokeWidth: 1, strokeDasharray: "4 4" }} />
-                    <Area type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={2} fill="url(#priceGradient)" animationDuration={800} animationEasing="ease-out" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[380px] w-full animate-pulse rounded-lg bg-card" />
-              )}
+              <div className="h-[380px] w-full min-w-0">
+                {chartReady ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                    <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={strokeColor} stopOpacity={0.25} />
+                          <stop offset="50%" stopColor={strokeColor} stopOpacity={0.08} />
+                          <stop offset="100%" stopColor={strokeColor} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" vertical={false} />
+                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} interval="preserveStartEnd" />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: "#71717a", fontSize: 11 }} domain={["auto", "auto"]} tickFormatter={(v) => `${v}`} width={50} />
+                      <RTooltip content={<CustomTooltip />} cursor={{ stroke: "#6366f1", strokeWidth: 1, strokeDasharray: "4 4" }} />
+                      <Area type="monotone" dataKey="price" stroke={strokeColor} strokeWidth={2} fill="url(#priceGradient)" animationDuration={800} animationEasing="ease-out" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full w-full animate-pulse rounded-lg bg-card" />
+                )}
+              </div>
             </div>
 
             <div className="min-w-0 px-6 pb-4">
               <p className="mb-1 text-[10px] uppercase tracking-wider text-muted">Volume</p>
-              {chartReady ? (
-                <ResponsiveContainer width="100%" height={50} minWidth={0} minHeight={1}>
-                  <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                    <Bar dataKey="volume" fill={isPositive ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"} stroke={isPositive ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"} strokeWidth={1} radius={[2, 2, 0, 0]} animationDuration={600} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-[50px] w-full animate-pulse rounded-lg bg-card" />
-              )}
+              <div className="h-[50px] w-full min-w-0">
+                {chartReady ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={1}>
+                    <BarChart data={chartData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
+                      <Bar dataKey="volume" fill={isPositive ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"} stroke={isPositive ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"} strokeWidth={1} radius={[2, 2, 0, 0]} animationDuration={600} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full w-full animate-pulse rounded-lg bg-card" />
+                )}
+              </div>
             </div>
           </motion.div>
 
@@ -499,8 +685,23 @@ export default function TradePage() {
             <div className="p-5 space-y-4">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted">Available Balance</span>
-                <span className="font-semibold text-foreground">10,000.00 VALU</span>
+                <span className="font-semibold text-foreground">{fmt.format(wallet?.availableBalance ?? 0)} ALGO</span>
               </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted">Reserved</span>
+                <span className="text-foreground/80">{fmt.format(wallet?.reservedBalance ?? 0)} ALGO</span>
+              </div>
+              <div className="flex justify-end">
+                <Link href="/wallet" className="text-[11px] font-semibold text-accent-light hover:underline">
+                  Wallet dashboard →
+                </Link>
+              </div>
+              {tab === "sell" && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted">Free Shares</span>
+                  <span className="text-foreground/80">{fmt.format(freeShares)}</span>
+                </div>
+              )}
 
               <div className="flex gap-1 rounded-lg bg-card p-0.5">
                 {(["market", "limit"] as const).map((ot) => (
@@ -511,20 +712,29 @@ export default function TradePage() {
               <AnimatePresence>
                 {orderType === "limit" && (
                   <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
-                    <label className="mb-1.5 block text-xs text-muted">Limit Price (VALU)</label>
+                    <label className="mb-1.5 block text-xs text-muted">Limit Price (ALGO)</label>
                     <input type="number" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder={project.price.toFixed(2)} className="w-full rounded-lg border border-card-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted/40 transition focus:border-accent focus:outline-none" />
                   </motion.div>
                 )}
               </AnimatePresence>
 
               <div>
-                <label className="mb-1.5 block text-xs text-muted">Amount (VALU)</label>
-                <input type="number" value={amount} onChange={(e) => { setAmount(e.target.value); const pct = Math.min(100, Math.max(0, (parseFloat(e.target.value) / 10000) * 100)); setSliderValue(isNaN(pct) ? 0 : pct); }} placeholder="Enter amount" className="w-full rounded-lg border border-card-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted/40 transition focus:border-accent focus:outline-none" />
+                <label className="mb-1.5 block text-xs text-muted">Amount (ALGO)</label>
+                <input type="number" value={amount} onChange={(e) => {
+                  setAmount(e.target.value);
+                  const base = tab === "buy" ? wallet?.availableBalance ?? 0 : Math.max(1, freeShares * effectivePrice);
+                  const pct = Math.min(100, Math.max(0, (parseFloat(e.target.value) / Math.max(1, base)) * 100));
+                  setSliderValue(isNaN(pct) ? 0 : pct);
+                }} placeholder="Enter amount" className="w-full rounded-lg border border-card-border bg-card px-4 py-2.5 text-sm text-foreground placeholder:text-muted/40 transition focus:border-accent focus:outline-none" />
               </div>
 
               <div className="flex gap-1.5">
                 {quickAmounts.map((qa) => (
-                  <button key={qa} onClick={() => { setAmount(String(qa)); setSliderValue(Math.min(100, (qa / 10000) * 100)); }} className={`flex-1 rounded-md border py-1.5 text-[11px] font-medium transition ${amount === String(qa) ? tab === "buy" ? "border-gain/30 bg-gain/10 text-gain" : "border-loss/30 bg-loss/10 text-loss" : "border-card-border bg-card text-muted hover:text-foreground hover:border-accent/30"}`}>
+                  <button key={qa} onClick={() => {
+                    setAmount(String(qa));
+                    const base = tab === "buy" ? wallet?.availableBalance ?? 0 : Math.max(1, freeShares * effectivePrice);
+                    setSliderValue(Math.min(100, (qa / Math.max(1, base)) * 100));
+                  }} className={`flex-1 rounded-md border py-1.5 text-[11px] font-medium transition ${amount === String(qa) ? tab === "buy" ? "border-gain/30 bg-gain/10 text-gain" : "border-loss/30 bg-loss/10 text-loss" : "border-card-border bg-card text-muted hover:text-foreground hover:border-accent/30"}`}>
                     {qa.toLocaleString()}
                   </button>
                 ))}
@@ -540,15 +750,58 @@ export default function TradePage() {
               </div>
 
               <div className="space-y-2 rounded-lg bg-card p-3.5">
-                <div className="flex justify-between text-xs"><span className="text-muted">Price per share</span><span className="tabular-nums">{fmt.format(effectivePrice)} VALU</span></div>
+                <div className="flex justify-between text-xs"><span className="text-muted">Price per share</span><span className="tabular-nums">{fmt.format(effectivePrice)} ALGO</span></div>
                 <div className="flex justify-between text-xs"><span className="text-muted">Shares</span><span className="tabular-nums">{units}</span></div>
                 {orderType === "limit" && <div className="flex justify-between text-xs"><span className="text-muted">Order type</span><span className="text-accent">Limit Order</span></div>}
-                <div className="flex justify-between border-t border-card-border pt-2 text-sm"><span className="text-muted">Total</span><span className="font-bold tabular-nums">{amount ? `${fmt.format(parseFloat(amount))} VALU` : "0.00 VALU"}</span></div>
+                <div className="flex justify-between text-xs"><span className="text-muted">Open orders</span><span className="tabular-nums">{openOrders.length}</span></div>
+                <div className="flex justify-between border-t border-card-border pt-2 text-sm"><span className="text-muted">Estimated total</span><span className="font-bold tabular-nums">{amount ? `${fmt.format(parseFloat(amount))} ALGO` : "0.00 ALGO"}</span></div>
               </div>
 
-              <motion.button whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.01 }} onClick={handleOrder} disabled={!amount || parseFloat(amount) <= 0} className={`w-full rounded-lg py-3.5 text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed ${tab === "buy" ? "bg-gain shadow-lg shadow-gain/20 hover:shadow-gain/30" : "bg-loss shadow-lg shadow-loss/20 hover:shadow-loss/30"}`}>
-                {tab === "buy" ? "Buy" : "Sell"} {project.title}
+              {tab === "buy" && missingAlgo > 0 && (
+                <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  Need {fmt.format(missingAlgo)} ALGO more to place this order.
+                </div>
+              )}
+              {tab === "sell" && missingShares > 0 && (
+                <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                  Need {fmt.format(missingShares)} more shares to sell this size.
+                </div>
+              )}
+
+              <motion.button whileTap={{ scale: 0.97 }} whileHover={{ scale: 1.01 }} onClick={handleOrder} disabled={!amount || parseFloat(amount) <= 0 || placingOrder || missingAlgo > 0 || missingShares > 0} className={`w-full rounded-lg py-3.5 text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed ${tab === "buy" ? "bg-gain shadow-lg shadow-gain/20 hover:shadow-gain/30" : "bg-loss shadow-lg shadow-loss/20 hover:shadow-loss/30"}`}>
+                {placingOrder ? "Submitting..." : `${tab === "buy" ? "Buy" : "Sell"} ${project.title}`}
               </motion.button>
+
+              {openOrders.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-card-border/80 bg-card/30 p-3">
+                  <div className="flex items-center justify-between text-[11px] uppercase tracking-wider text-muted">
+                    <span>Open Orders</span>
+                    <span>{openOrders.length}</span>
+                  </div>
+                  {openOrders.slice(0, 3).map((order) => (
+                    <div key={order.id} className="flex items-center justify-between gap-3 rounded-lg bg-background/40 px-3 py-2 text-xs">
+                      <div>
+                        <p className="font-semibold text-foreground">{order.side.toUpperCase()} {fmt.format(order.remainingQuantity)} sh</p>
+                        <p className="text-muted">{order.type === "limit" ? `${fmt.format(order.limitPrice ?? 0)} ALGO` : "Market"} · {order.status.replaceAll("_", " ")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void apiCancelProjectOrder(project.id, order.id)
+                            .then(async () => {
+                              await loadMarketData("poll");
+                              emitAppWalletRefresh();
+                            })
+                            .catch((error: unknown) => setTradeError(error instanceof Error ? error.message : "Cancel failed."))
+                        }
+                        className="rounded-md border border-card-border px-2 py-1 text-[11px] font-semibold text-foreground hover:border-accent/40"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <AnimatePresence>
                 {showSuccess && (
@@ -558,6 +811,8 @@ export default function TradePage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+              {tradeResult && <p className="text-xs text-foreground/75">{tradeResult}</p>}
+              {tradeError && <p className="text-xs text-loss">{tradeError}</p>}
             </div>
           </motion.div>
 
@@ -738,7 +993,7 @@ export default function TradePage() {
                       <PriceChange value={p.change} percent={p.changePercent} />
                     </div>
                   </div>
-                  <div className="mt-2">
+                  <div className="mt-2 min-h-[40px] min-w-0">
                     <SparklineChart data={p.sparkline} positive={p.change >= 0} />
                   </div>
                 </div>

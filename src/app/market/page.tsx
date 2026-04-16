@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { apiGetProjects } from "@/lib/api-client";
 import type { ProjectStock } from "@/lib/data";
+import { useMergedProjects } from "@/hooks/useMergedProjects";
 import Avatar from "@/components/Avatar";
 import PriceChange from "@/components/PriceChange";
 import SparklineChart from "@/components/SparklineChart";
@@ -36,13 +36,14 @@ function filtered(projects: ProjectStock[], filter: FilterValue): ProjectStock[]
 }
 
 export default function MarketPage() {
-  const [projects, setProjects] = useState<ProjectStock[]>([]);
+  const projects = useMergedProjects();
   const [active, setActive] = useState<FilterValue>("all");
   const list = useMemo(() => filtered(projects, active), [projects, active]);
-
-  useEffect(() => {
-    apiGetProjects().then(setProjects).catch(() => setProjects([]));
-  }, []);
+  const [postedBanner, setPostedBanner] = useState<{ show: boolean; title: string | null }>(() => {
+    if (typeof window === "undefined") return { show: false, title: null };
+    const q = new URLSearchParams(window.location.search);
+    return q.get("posted") === "1" ? { show: true, title: q.get("title") } : { show: false, title: null };
+  });
 
   return (
     <section className="py-8">
@@ -54,6 +55,37 @@ export default function MarketPage() {
         <h1 className="text-3xl font-bold tracking-tight">Market</h1>
         <p className="mt-1 text-muted">Invest in projects that matter</p>
       </motion.div>
+
+      {postedBanner.show && (
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mt-5 flex flex-col gap-3 rounded-xl border border-gain/25 bg-gain/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p className="text-sm text-foreground/90">
+            <span className="font-semibold text-gain">Listing published.</span>{" "}
+            {postedBanner.title ? `“${postedBanner.title}” is live on the market.` : "Your project is live on the market."}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/post-project"
+              className="inline-flex rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-accent/90"
+            >
+              Post another
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setPostedBanner({ show: false, title: null });
+                window.history.replaceState({}, "", "/market");
+              }}
+              className="rounded-lg border border-card-border px-3 py-1.5 text-xs font-medium text-muted hover:bg-card"
+            >
+              Dismiss
+            </button>
+          </div>
+        </motion.div>
+      )}
 
       <div className="mt-6 flex flex-wrap gap-2">
         {filters.map((f) => (
@@ -119,7 +151,9 @@ export default function MarketPage() {
                     </div>
                   </div>
 
-                  <SparklineChart data={project.sparkline} positive={project.change >= 0} />
+                  <div className="min-h-[40px] min-w-0 w-full">
+                    <SparklineChart data={project.sparkline} positive={project.change >= 0} />
+                  </div>
 
                   <div className="flex justify-between text-xs text-muted">
                     <span>Vol {project.volume}</span>
