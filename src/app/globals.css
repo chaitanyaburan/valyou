@@ -280,3 +280,58 @@ input[type="number"] {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* driver.js app tour — match Valyou surfaces */
+.driver-popover.valyou-driver-popover {
+  max-width: min(340px, calc(100vw - 20px));
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--card-border);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-title {
+  color: var(--foreground);
+  font-size: 1rem;
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-description {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-progress-text {
+  color: var(--muted);
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-footer button {
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 600;
+  text-shadow: none;
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-footer button:hover,
+.driver-popover.valyou-driver-popover .driver-popover-footer button:focus {
+  background: color-mix(in srgb, var(--accent) 18%, var(--card));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--card-border));
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-close-btn {
+  color: var(--muted);
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-close-btn:hover,
+.driver-popover.valyou-driver-popover .driver-popover-close-btn:focus {
+  color: var(--foreground);
+}
+
+.driver-popover.valyou-driver-popover .driver-popover-arrow {
+  border-color: var(--card);
+}

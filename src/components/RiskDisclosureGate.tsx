@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-
-const STORAGE_KEY = "valyou.riskDisclosureAccepted.v1";
+import { APP_TOUR_RISK_ACCEPTED_EVENT, RISK_DISCLOSURE_ACCEPTED_KEY } from "@/lib/app-tour";
 
 type GateState = "pending" | "needAck" | "ok";
 
@@ -13,7 +12,7 @@ export default function RiskDisclosureGate({ children }: { children: React.React
   useEffect(() => {
     const t = window.setTimeout(() => {
       try {
-        setGate(window.localStorage.getItem(STORAGE_KEY) === "1" ? "ok" : "needAck");
+        setGate(window.localStorage.getItem(RISK_DISCLOSURE_ACCEPTED_KEY) === "1" ? "ok" : "needAck");
       } catch {
         setGate("needAck");
       }
@@ -23,7 +22,7 @@ export default function RiskDisclosureGate({ children }: { children: React.React
 
   const onAccept = useCallback(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, "1");
+      window.localStorage.setItem(RISK_DISCLOSURE_ACCEPTED_KEY, "1");
     } catch {
       /* ignore */
     }
@@ -31,6 +30,11 @@ export default function RiskDisclosureGate({ children }: { children: React.React
   }, []);
 
   const blocked = gate !== "ok";
+
+  useEffect(() => {
+    if (gate !== "ok") return;
+    window.dispatchEvent(new CustomEvent(APP_TOUR_RISK_ACCEPTED_EVENT));
+  }, [gate]);
 
   useEffect(() => {
     document.documentElement.style.overflow = blocked ? "hidden" : "";

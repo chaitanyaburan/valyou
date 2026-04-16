@@ -9,14 +9,19 @@ export type SessionUser = {
   displayName: string;
 };
 
+const DEV_SESSION_FALLBACK = "development-only-secret-min-32-characters-long!";
+
 function getSecretKey() {
-  let secret = process.env.SESSION_SECRET;
+  const raw = process.env.SESSION_SECRET?.trim();
+  let secret = raw && raw.length >= 32 ? raw : undefined;
+
   if (!secret && process.env.NODE_ENV === "development") {
-    secret = "development-only-secret-min-32-characters-long!";
+    secret = DEV_SESSION_FALLBACK;
   }
+
   if (!secret || secret.length < 32) {
     throw new Error(
-      "SESSION_SECRET must be set to a random string of at least 32 characters (see .env.example).",
+      "SESSION_SECRET must be set to a random string of at least 32 characters (see .env.example). On Vercel, add it under Project → Settings → Environment Variables.",
     );
   }
   return new TextEncoder().encode(secret);

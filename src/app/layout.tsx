@@ -7,6 +7,7 @@ import RiskDisclosureGate from "@/components/RiskDisclosureGate";
 import ThemeScript from "@/components/ThemeScript";
 import { PeraTestnetProvider } from "@/components/providers/PeraTestnetProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { AppTourProvider } from "@/contexts/AppTourContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -46,14 +47,16 @@ export default function RootLayout({
         <RiskDisclosureGate>
           <PeraTestnetProvider>
             <AuthProvider>
-              <Navbar />
-              <div className="pt-14 sm:pt-16">
-                <Ticker />
-              </div>
-              <main className="mx-auto max-w-7xl px-3 sm:px-4 md:px-6 pb-20 lg:pb-6">
-                {children}
-              </main>
-              <BottomNav />
+              <AppTourProvider>
+                <Navbar />
+                <div className="pt-14 sm:pt-16">
+                  <Ticker />
+                </div>
+                <main className="mx-auto max-w-7xl px-3 sm:px-4 md:px-6 pb-20 lg:pb-6">
+                  {children}
+                </main>
+                <BottomNav />
+              </AppTourProvider>
             </AuthProvider>
           </PeraTestnetProvider>
         </RiskDisclosureGate>

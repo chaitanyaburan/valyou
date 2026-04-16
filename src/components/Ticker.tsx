@@ -9,7 +9,7 @@ export default function Ticker() {
   const items = useMemo(() => [...projects, ...projects], [projects]);
 
   return (
-    <div className="border-b border-card-border bg-background/60 backdrop-blur-sm overflow-hidden">
+    <div className="border-b border-card-border bg-background/60 backdrop-blur-sm overflow-hidden" data-tour="ticker">
       <div className="animate-marquee flex whitespace-nowrap py-1.5">
         {items.map((p, i) => (
           <span key={`${p.id}-${i}`} className="mx-4 inline-flex items-center gap-2 text-xs">

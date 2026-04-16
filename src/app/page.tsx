@@ -528,6 +528,7 @@ export default function HomePage() {
     <section className="py-4 sm:py-6">
       {/* ═══ HERO BANNER ═══ */}
       <motion.div
+        data-tour="home-hero"
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
@@ -617,7 +618,7 @@ export default function HomePage() {
 
       <div className="flex gap-6">
         {/* ═══ MAIN FEED ═══ */}
-        <div className="min-w-0 flex-1 max-w-2xl mx-auto lg:mx-0">
+        <div className="min-w-0 flex-1 max-w-2xl mx-auto lg:mx-0" data-tour="home-feed">
           {/* Stories Bar */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.1 }} className="glass-card p-3 sm:p-4">
             <div className="flex gap-3 sm:gap-4 overflow-x-auto pb-1 scrollbar-none">

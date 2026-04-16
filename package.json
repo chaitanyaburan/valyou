@@ -14,6 +14,7 @@
     "@perawallet/connect": "^1.5.2",
     "algosdk": "^3.5.2",
     "bcryptjs": "^3.0.3",
+    "driver.js": "^1.4.0",
     "framer-motion": "^12.38.0",
     "jose": "^6.2.2",
     "mongoose": "^9.4.1",

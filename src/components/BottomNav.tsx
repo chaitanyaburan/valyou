@@ -66,7 +66,10 @@ export default function BottomNav() {
   }, [profileHref]);
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 lg:hidden border-t border-card-border bg-background/90 backdrop-blur-xl safe-bottom">
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 lg:hidden border-t border-card-border bg-background/90 backdrop-blur-xl safe-bottom"
+      data-tour="bottom-nav"
+    >
       <div className="flex items-center justify-around px-1 h-14">
         {tabs.map(({ label, href, icon }) => {
           const isProfile = label === "Profile";
